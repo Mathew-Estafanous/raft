@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/Mathew-Estafanous/raft"
 	"log"
-	"net"
 )
 
 func main() {
@@ -20,24 +19,15 @@ func main() {
 	}
 
 	closeCh := make(chan bool)
-	lis1, err := net.Listen("tcp", ":9000")
-	if err != nil {
-		log.Fatal(err)
-	}
-	lis2, err := net.Listen("tcp", ":8000")
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	go func() {
-		_ = r1.Serve(lis1)
+		_ = r1.ListenAndServe(":9000")
 		closeCh <- true
 	}()
 
 	go func() {
-		_ = r2.Serve(lis2)
+		_ = r2.ListenAndServe(":8000")
 		closeCh <- true
 	}()
 
-	<- closeCh
+	<-closeCh
 }
