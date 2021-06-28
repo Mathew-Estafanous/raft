@@ -3,8 +3,10 @@ package raft
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -15,6 +17,10 @@ const (
 	Candidate      = 'C'
 	Leader         = 'L'
 )
+
+type RoleFunc interface {
+	runRole()
+}
 
 type node struct {
 	// An ID that uniquely identifies the raft in the cluster.
@@ -45,9 +51,13 @@ func (c *cluster) addNode(n node) error {
 	return nil
 }
 
+func (c *cluster) quorum() int {
+	return len(c.Nodes)/2 + 1
+}
+
 type Raft struct {
 	id     uint64
-	timer  time.Timer
+	timer  *time.Timer
 	logger *log.Logger
 
 	// Each raft is part of a cluster that keeps track of all other
@@ -55,7 +65,7 @@ type Raft struct {
 	cluster *cluster
 
 	currentTerm uint64
-	votedFor    uint64
+	rMu sync.Mutex
 	role        Role
 
 	shutdownCh chan bool
@@ -69,10 +79,10 @@ func NewRaft(c *cluster, id uint64) (*Raft, error) {
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
 	return &Raft{
 		id:          id,
+		timer: 		 time.NewTimer(1 * time.Millisecond),
 		logger:      logger,
 		cluster:     c,
 		currentTerm: 0,
-		votedFor:    0,
 		role:        Follower,
 	}, nil
 }
@@ -104,18 +114,84 @@ func (r *Raft) Serve(l net.Listener) error {
 		}
 		r.shutdownCh <- true
 	}()
+	go r.run()
 	return nil
 }
 
 // run is where the core logic of the Raft lies. It is a long running routine that
 // periodically checks for recent RPC messages or other events and handles them accordingly.
 func (r *Raft) run() {
+	roles := map[Role]RoleFunc{
+		Follower: &follower{Raft: r},
+		Candidate: &candidate{
+			Raft: r,
+			electionTimer: time.NewTimer(1 * time.Millisecond),
+		},
+	}
 	for {
 		select {
 		case <-r.shutdownCh:
-			// Raft has shutdown and no-longer requires
+			// Raft has shutdown and should no-longer run
 			return
 		default:
 		}
+
+		ro, ok := roles[r.role]
+		if !ok {
+			r.logger.Fatal("Role for %v could not be identified in map!", r.role)
+		}
+		ro.runRole()
 	}
+}
+
+func (r *Raft) setRole(ro Role) {
+	r.rMu.Lock()
+	r.logger.Printf("Changing role from %c -> %c", r.role, ro)
+	r.role = ro
+	r.rMu.Unlock()
+}
+
+type follower struct {
+	*Raft
+	votedFor uint64
+}
+
+func (r *follower) runRole() {
+	r.timer.Reset(randTime())
+	for {
+		select {
+		case <-r.timer.C:
+			r.logger.Println("Timeout event has occurred. Starting an election")
+			r.setRole(Candidate)
+			return
+		case <-r.shutdownCh:
+			return
+		}
+	}
+}
+
+type candidate struct {
+	*Raft
+	electionTimer *time.Timer
+}
+
+func (r *candidate) runRole() {
+	r.electionTimer.Reset(randTime())
+	r.currentTerm++
+	r.logger.Printf("Candidate started election for term %v.", r.currentTerm)
+	_ = 0
+	_ = r.cluster.quorum()
+	for {
+		select {
+		case <- r.electionTimer.C:
+			r.logger.Println("Election has failed, restarting election.")
+			return
+		}
+	}
+}
+
+func randTime() time.Duration {
+	min := int64(150 * time.Millisecond)
+	max := int64(300 * time.Millisecond)
+	return time.Duration(rand.Int63n(max-min) + min)
 }

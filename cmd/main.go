@@ -19,15 +19,14 @@ func main() {
 	}
 
 	closeCh := make(chan bool)
-	go func() {
-		_ = r1.ListenAndServe(":9000")
-		closeCh <- true
-	}()
-
-	go func() {
-		_ = r2.ListenAndServe(":8000")
-		closeCh <- true
-	}()
+	err = r1.ListenAndServe(":9000")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	err = r2.ListenAndServe(":8000")
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	<-closeCh
 }
