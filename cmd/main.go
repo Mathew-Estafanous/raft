@@ -3,6 +3,9 @@ package main
 import (
 	"github.com/Mathew-Estafanous/raft"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
@@ -18,7 +21,8 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	closeCh := make(chan bool)
+	closeCh := make(chan os.Signal)
+	signal.Notify(closeCh, os.Interrupt, syscall.SIGTERM, syscall.SIGTERM)
 	err = r1.ListenAndServe(":9000")
 	if err != nil {
 		log.Fatalln(err)
@@ -29,4 +33,5 @@ func main() {
 	}
 
 	<-closeCh
+	log.Println("SHUTDOWN!")
 }

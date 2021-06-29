@@ -65,7 +65,7 @@ type Raft struct {
 	cluster *cluster
 
 	currentTerm uint64
-	rMu sync.Mutex
+	rMu 		sync.Mutex
 	role        Role
 
 	shutdownCh chan bool
@@ -105,15 +105,10 @@ func (r *Raft) Serve(l net.Listener) error {
 		return err
 	}
 
-	server := newServer(r, l)
+	s := newServer(r, l)
 	r.logger.Printf("Starting raft on %v", l.Addr().String())
-	go func() {
-		err = server.start()
-		if err != nil {
-			r.logger.Printf("gRPC server shutdown unexpectedly.")
-		}
-		r.shutdownCh <- true
-	}()
+	s.serve()
+
 	go r.run()
 	return nil
 }
@@ -145,8 +140,8 @@ func (r *Raft) run() {
 }
 
 func (r *Raft) setRole(ro Role) {
-	r.rMu.Lock()
 	r.logger.Printf("Changing role from %c -> %c", r.role, ro)
+	r.rMu.Lock()
 	r.role = ro
 	r.rMu.Unlock()
 }
