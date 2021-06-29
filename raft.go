@@ -10,16 +10,17 @@ import (
 	"time"
 )
 
-type Role byte
+type StateType byte
 
 const (
-	Follower  Role = 'F'
-	Candidate      = 'C'
-	Leader         = 'L'
+	Follower  StateType = 'F'
+	Candidate           = 'C'
+	Leader              = 'L'
 )
 
-type RoleFunc interface {
-	runRole()
+type State interface {
+	runState()
+	getType() StateType
 }
 
 type node struct {
@@ -44,7 +45,7 @@ func NewCluster() *cluster {
 
 func (c *cluster) addNode(n node) error {
 	if _, ok := c.Nodes[n.ID]; ok {
-		return fmt.Errorf("[Cluster] A node with %d is already registered", n.ID)
+		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
 	}
 	c.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
 	c.Nodes[n.ID] = n
@@ -64,9 +65,9 @@ type Raft struct {
 	// nodes and their address location.
 	cluster *cluster
 
+	mu			sync.Mutex
 	currentTerm uint64
-	rMu 		sync.Mutex
-	role        Role
+	state       State
 
 	shutdownCh chan bool
 }
@@ -77,14 +78,15 @@ func NewRaft(c *cluster, id uint64) (*Raft, error) {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
-	return &Raft{
+	r := &Raft{
 		id:          id,
-		timer: 		 time.NewTimer(1 * time.Millisecond),
+		timer:       time.NewTimer(1 * time.Second),
 		logger:      logger,
 		cluster:     c,
 		currentTerm: 0,
-		role:        Follower,
-	}, nil
+	}
+	r.state = &follower{Raft: r}
+	return r, nil
 }
 
 func (r *Raft) ListenAndServe(addr string) error {
@@ -107,7 +109,13 @@ func (r *Raft) Serve(l net.Listener) error {
 
 	s := newServer(r, l)
 	r.logger.Printf("Starting raft on %v", l.Addr().String())
-	s.serve()
+	go func() {
+		err := s.serve()
+		if err != nil {
+			r.logger.Printf("gRPC server crashed unexpectedly: %v", err)
+			r.shutdownCh <- true
+		}
+	}()
 
 	go r.run()
 	return nil
@@ -116,13 +124,6 @@ func (r *Raft) Serve(l net.Listener) error {
 // run is where the core logic of the Raft lies. It is a long running routine that
 // periodically checks for recent RPC messages or other events and handles them accordingly.
 func (r *Raft) run() {
-	roles := map[Role]RoleFunc{
-		Follower: &follower{Raft: r},
-		Candidate: &candidate{
-			Raft: r,
-			electionTimer: time.NewTimer(1 * time.Millisecond),
-		},
-	}
 	for {
 		select {
 		case <-r.shutdownCh:
@@ -131,19 +132,29 @@ func (r *Raft) run() {
 		default:
 		}
 
-		ro, ok := roles[r.role]
-		if !ok {
-			r.logger.Fatal("Role for %v could not be identified in map!", r.role)
-		}
-		ro.runRole()
+		r.state.runState()
 	}
 }
 
-func (r *Raft) setRole(ro Role) {
-	r.logger.Printf("Changing role from %c -> %c", r.role, ro)
-	r.rMu.Lock()
-	r.role = ro
-	r.rMu.Unlock()
+func (r *Raft) setState(s StateType) {
+	r.logger.Printf("Changing state from %c -> %c", r.state.getType(), s)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch s {
+	case Follower:
+		r.state = &follower{Raft: r}
+	case Candidate:
+	    r.state = &candidate{
+			Raft:          r,
+			electionTimer: time.NewTimer(1 * time.Second),
+		}
+	case Leader:
+		// TODO: Make the leader struct.
+		return
+	default:
+		log.Printf("Provided State type %c is not valid!", s)
+		r.shutdownCh <- true
+	}
 }
 
 type follower struct {
@@ -151,18 +162,22 @@ type follower struct {
 	votedFor uint64
 }
 
-func (r *follower) runRole() {
-	r.timer.Reset(randTime())
+func (f *follower) runState() {
+	f.timer.Reset(randTime())
 	for {
 		select {
-		case <-r.timer.C:
-			r.logger.Println("Timeout event has occurred. Starting an election")
-			r.setRole(Candidate)
+		case <-f.timer.C:
+			f.logger.Println("Timeout event has occurred. Starting an election")
+			f.setState(Candidate)
 			return
-		case <-r.shutdownCh:
+		case <-f.shutdownCh:
 			return
 		}
 	}
+}
+
+func (f *follower) getType() StateType {
+	return Follower
 }
 
 type candidate struct {
@@ -170,19 +185,27 @@ type candidate struct {
 	electionTimer *time.Timer
 }
 
-func (r *candidate) runRole() {
-	r.electionTimer.Reset(randTime())
-	r.currentTerm++
-	r.logger.Printf("Candidate started election for term %v.", r.currentTerm)
+func (c *candidate) runState() {
+	c.mu.Lock()
+	c.electionTimer.Reset(randTime())
+	c.currentTerm++
+	c.logger.Printf("Candidate started election for term %v.", c.currentTerm)
+	c.mu.Unlock()
 	_ = 0
-	_ = r.cluster.quorum()
+	_ = c.cluster.quorum()
 	for {
 		select {
-		case <- r.electionTimer.C:
-			r.logger.Println("Election has failed, restarting election.")
+		case <-c.electionTimer.C:
+			c.logger.Println("Election has failed, restarting election.")
+			return
+		case <- c.shutdownCh:
 			return
 		}
 	}
+}
+
+func (c *candidate) getType() StateType {
+	return Candidate
 }
 
 func randTime() time.Duration {
