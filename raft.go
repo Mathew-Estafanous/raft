@@ -1,8 +1,10 @@
 package raft
 
 import (
+	"context"
 	"fmt"
 	"github.com/Mathew-Estafanous/raft/pb"
+	"google.golang.org/grpc"
 	"log"
 	"math/rand"
 	"net"
@@ -15,8 +17,8 @@ type StateType byte
 
 const (
 	Follower  StateType = 'F'
-	Candidate           = 'C'
-	Leader              = 'L'
+	Candidate StateType = 'C'
+	Leader    StateType = 'L'
 )
 
 type State interface {
@@ -67,7 +69,7 @@ type Raft struct {
 	// nodes and their address location.
 	cluster *cluster
 
-	mu			sync.Mutex
+	mu          sync.Mutex
 	currentTerm uint64
 	state       State
 
@@ -149,24 +151,24 @@ func (r *Raft) setState(s StateType) {
 	case Follower:
 		r.state = &follower{Raft: r}
 	case Candidate:
-	    r.state = &candidate{
+		r.state = &candidate{
 			Raft:          r,
 			electionTimer: time.NewTimer(1 * time.Second),
 		}
 	case Leader:
-		// TODO: Make the leader struct.
-		return
+		r.state = &leader {
+			Raft: r,
+			heartbeat: time.NewTimer(1 * time.Second),
+		}
 	default:
-		log.Printf("Provided State type %c is not valid!", s)
-		r.shutdownCh <- true
+		log.Fatalf("[BUG] Provided State type %c is not valid!", s)
 	}
 }
 
-
-func (r *Raft) handleRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
+func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	r.mu.Lock()
 	resp := &pb.VoteResponse{
-		Term: r.currentTerm,
+		Term:        r.currentTerm,
 		VoteGranted: false,
 	}
 	r.mu.Unlock()
@@ -189,7 +191,7 @@ func (r *Raft) handleRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	if r.votedFor == 0 && r.voteTerm != int64(req.Term) {
-		r.logger.Println("Vote granted to candidate %d for term %d", req.CandidateId, req.Term)
+		r.logger.Printf("Vote granted to candidate %d for term %d", req.CandidateId, req.Term)
 		r.mu.Lock()
 		r.voteTerm = int64(req.Term)
 		r.timer.Reset(randTime())
@@ -199,9 +201,26 @@ func (r *Raft) handleRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	return resp
 }
 
+func (r *Raft) sendRPC(req interface{}, target node) RPCResponse {
+	conn, err := grpc.Dial(target.Addr, grpc.WithInsecure())
+	if err != nil {
+		return ToRPCResponse(nil, err)
+	}
+	c := pb.NewRaftClient(conn)
+	var rpcResp RPCResponse
+	switch req := req.(type) {
+	case *pb.VoteRequest:
+		res, err := c.RequestVote(context.Background(), req)
+		rpcResp = ToRPCResponse(res, err)
+	default:
+		log.Fatalf("[BUG] Could not determine RPC request of %v", req)
+	}
+	return rpcResp
+}
+
 func randTime() time.Duration {
-	min := int64(150 * time.Millisecond)
-	max := int64(300 * time.Millisecond)
+	min := int64(1 * time.Second)
+	max := int64(3 * time.Second)
 	return time.Duration(rand.Int63n(max-min) + min)
 }
 
@@ -233,17 +252,23 @@ func (f *follower) handleRPC(req interface{}) RPCResponse {
 
 	switch req := req.(type) {
 	case *pb.VoteRequest:
-		resp = f.handleRequestVote(req)
+		resp = f.onRequestVote(req)
 	default:
 		rpcErr = fmt.Errorf("unable to response to rpc request")
 	}
 
-	return ToRPCResponse(&resp, rpcErr)
+	return ToRPCResponse(resp, rpcErr)
 }
 
 type candidate struct {
 	*Raft
 	electionTimer *time.Timer
+	votesNeeded   int
+	voteCh        chan RPCResponse
+}
+
+func (c *candidate) getType() StateType {
+	return Candidate
 }
 
 func (c *candidate) runState() {
@@ -252,21 +277,59 @@ func (c *candidate) runState() {
 	c.currentTerm++
 	c.logger.Printf("Candidate started election for term %v.", c.currentTerm)
 	c.mu.Unlock()
-	_ = 0
-	_ = c.cluster.quorum()
+
+	// start the leader election by creating the vote request and sending an
+	// RPC request to all the other nodes in separate goroutines.
+	c.voteCh = make(chan RPCResponse, len(c.cluster.Nodes))
+	c.votesNeeded = c.cluster.quorum() - 1
+	c.voteTerm = int64(c.currentTerm)
+	c.votedFor = c.id
+	req := &pb.VoteRequest{
+		Term:        c.currentTerm,
+		CandidateId: c.id,
+	}
+	for _, v := range c.cluster.Nodes {
+		if v.ID == c.id {
+			continue
+		}
+
+		go func(n node) {
+			res := c.sendRPC(req, n)
+			c.voteCh <- res
+		}(v)
+	}
+
 	for c.state.getType() == Candidate {
 		select {
 		case <-c.electionTimer.C:
 			c.logger.Println("Election has failed, restarting election.")
 			return
-		case <- c.shutdownCh:
+		case v := <-c.voteCh:
+			vote := v.resp.(*pb.VoteResponse)
+
+			// If term of peer is greater then go back to follower
+			// and update current term to the peer's term.
+			if vote.Term > c.currentTerm {
+				c.logger.Println("Demoting since peer's term is greater than current term")
+				c.mu.Lock()
+				c.currentTerm = vote.Term
+				c.mu.Unlock()
+				c.setState(Follower)
+				break
+			}
+
+			if vote.VoteGranted {
+				c.votesNeeded--
+				// Check if the total votes needed has been reached. If so
+				// then election has passed and candidate is now the leader.
+				if c.votesNeeded == 0 {
+					c.setState(Leader)
+				}
+			}
+		case <-c.shutdownCh:
 			return
 		}
 	}
-}
-
-func (c *candidate) getType() StateType {
-	return Candidate
 }
 
 func (c *candidate) handleRPC(req interface{}) RPCResponse {
@@ -275,10 +338,29 @@ func (c *candidate) handleRPC(req interface{}) RPCResponse {
 
 	switch req := req.(type) {
 	case *pb.VoteRequest:
-		resp = c.handleRequestVote(req)
+		resp = c.onRequestVote(req)
 	default:
 		rpcErr = fmt.Errorf("unable to response to rpc request")
 	}
 
-	return ToRPCResponse(&resp, rpcErr)
+	return ToRPCResponse(resp, rpcErr)
 }
+
+type leader struct {
+	*Raft
+	heartbeat *time.Timer
+}
+
+func (l *leader) getType() StateType {
+	return Leader
+}
+
+func (l *leader) runState() {
+	for l.state.getType() == Leader {
+	}
+}
+
+func (l *leader) handleRPC(req interface{}) RPCResponse {
+	panic("implement me")
+}
+

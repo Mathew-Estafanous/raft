@@ -21,6 +21,11 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	r3, err := raft.NewRaft(c, 3)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	closeCh := make(chan os.Signal)
 	signal.Notify(closeCh, os.Interrupt, syscall.SIGTERM, syscall.SIGTERM)
 	err = r1.ListenAndServe(":9000")
@@ -28,6 +33,10 @@ func main() {
 		log.Fatalln(err)
 	}
 	err = r2.ListenAndServe(":8000")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	err = r3.ListenAndServe(":7000")
 	if err != nil {
 		log.Fatalln(err)
 	}

@@ -12,7 +12,7 @@ type RPCResponse struct {
 
 func ToRPCResponse(r interface{}, err error) RPCResponse {
 	return RPCResponse{
-		resp: r,
+		resp:  r,
 		error: err,
 	}
 }
