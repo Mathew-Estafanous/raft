@@ -156,13 +156,19 @@ func (r *Raft) setState(s StateType) {
 			electionTimer: time.NewTimer(1 * time.Second),
 		}
 	case Leader:
-		r.state = &leader {
-			Raft: r,
+		r.state = &leader{
+			Raft:      r,
 			heartbeat: time.NewTimer(1 * time.Second),
 		}
 	default:
 		log.Fatalf("[BUG] Provided State type %c is not valid!", s)
 	}
+}
+
+func (r *Raft) getState() State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.state
 }
 
 func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
@@ -219,8 +225,8 @@ func (r *Raft) sendRPC(req interface{}, target node) RPCResponse {
 }
 
 func randTime() time.Duration {
-	min := int64(1 * time.Second)
-	max := int64(3 * time.Second)
+	min := int64(150 * time.Millisecond)
+	max := int64(350 * time.Millisecond)
 	return time.Duration(rand.Int63n(max-min) + min)
 }
 
@@ -230,10 +236,10 @@ type follower struct {
 
 func (f *follower) runState() {
 	f.timer.Reset(randTime())
-	for f.state.getType() == Follower {
+	for f.getState().getType() == Follower {
 		select {
 		case <-f.timer.C:
-			f.logger.Println("Timeout event has occurred. Starting an election")
+			f.logger.Println("Timeout event has occurred.")
 			f.setState(Candidate)
 			return
 		case <-f.shutdownCh:
@@ -299,10 +305,10 @@ func (c *candidate) runState() {
 		}(v)
 	}
 
-	for c.state.getType() == Candidate {
+	for c.getState().getType() == Candidate {
 		select {
 		case <-c.electionTimer.C:
-			c.logger.Println("Election has failed, restarting election.")
+			c.logger.Printf("Election has failed for term %d", c.currentTerm)
 			return
 		case v := <-c.voteCh:
 			vote := v.resp.(*pb.VoteResponse)
@@ -328,6 +334,7 @@ func (c *candidate) runState() {
 			}
 		case <-c.shutdownCh:
 			return
+		default:
 		}
 	}
 }
@@ -356,11 +363,20 @@ func (l *leader) getType() StateType {
 }
 
 func (l *leader) runState() {
-	for l.state.getType() == Leader {
+	for l.getState().getType() == Leader {
 	}
 }
 
 func (l *leader) handleRPC(req interface{}) RPCResponse {
-	panic("implement me")
-}
+	var rpcErr error
+	var resp interface{}
 
+	switch req := req.(type) {
+	case *pb.VoteRequest:
+		resp = l.onRequestVote(req)
+	default:
+		rpcErr = fmt.Errorf("unable to response to rpc request")
+	}
+
+	return ToRPCResponse(resp, rpcErr)
+}
