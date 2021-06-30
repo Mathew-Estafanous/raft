@@ -2,6 +2,7 @@ package raft
 
 import (
 	"fmt"
+	"github.com/Mathew-Estafanous/raft/pb"
 	"log"
 	"math/rand"
 	"net"
@@ -21,6 +22,7 @@ const (
 type State interface {
 	runState()
 	getType() StateType
+	handleRPC(req interface{}) RPCResponse
 }
 
 type node struct {
@@ -68,6 +70,9 @@ type Raft struct {
 	mu			sync.Mutex
 	currentTerm uint64
 	state       State
+
+	votedFor uint64
+	voteTerm int64
 
 	shutdownCh chan bool
 }
@@ -157,14 +162,56 @@ func (r *Raft) setState(s StateType) {
 	}
 }
 
+
+func (r *Raft) handleRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
+	r.mu.Lock()
+	resp := &pb.VoteResponse{
+		Term: r.currentTerm,
+		VoteGranted: false,
+	}
+	r.mu.Unlock()
+
+	r.logger.Printf("Received a request vote from candidate %d for term: %d", req.CandidateId, req.Term)
+	if req.Term < r.currentTerm {
+		r.logger.Printf("Vote denied. Candidate term %d | Current term is %d", req.Term, r.currentTerm)
+		return resp
+	}
+
+	if req.Term > r.currentTerm {
+		r.logger.Println("Stepping down to follower since candidate has a newer term.")
+		r.mu.Lock()
+		r.currentTerm = req.Term
+		r.mu.Unlock()
+		r.setState(Follower)
+
+		resp.Term = req.Term
+		r.votedFor = 0
+	}
+
+	if r.votedFor == 0 && r.voteTerm != int64(req.Term) {
+		r.logger.Println("Vote granted to candidate %d for term %d", req.CandidateId, req.Term)
+		r.mu.Lock()
+		r.voteTerm = int64(req.Term)
+		r.timer.Reset(randTime())
+		r.mu.Unlock()
+		resp.VoteGranted = true
+	}
+	return resp
+}
+
+func randTime() time.Duration {
+	min := int64(150 * time.Millisecond)
+	max := int64(300 * time.Millisecond)
+	return time.Duration(rand.Int63n(max-min) + min)
+}
+
 type follower struct {
 	*Raft
-	votedFor uint64
 }
 
 func (f *follower) runState() {
 	f.timer.Reset(randTime())
-	for {
+	for f.state.getType() == Follower {
 		select {
 		case <-f.timer.C:
 			f.logger.Println("Timeout event has occurred. Starting an election")
@@ -180,6 +227,20 @@ func (f *follower) getType() StateType {
 	return Follower
 }
 
+func (f *follower) handleRPC(req interface{}) RPCResponse {
+	var rpcErr error
+	var resp interface{}
+
+	switch req := req.(type) {
+	case *pb.VoteRequest:
+		resp = f.handleRequestVote(req)
+	default:
+		rpcErr = fmt.Errorf("unable to response to rpc request")
+	}
+
+	return ToRPCResponse(&resp, rpcErr)
+}
+
 type candidate struct {
 	*Raft
 	electionTimer *time.Timer
@@ -193,7 +254,7 @@ func (c *candidate) runState() {
 	c.mu.Unlock()
 	_ = 0
 	_ = c.cluster.quorum()
-	for {
+	for c.state.getType() == Candidate {
 		select {
 		case <-c.electionTimer.C:
 			c.logger.Println("Election has failed, restarting election.")
@@ -208,8 +269,16 @@ func (c *candidate) getType() StateType {
 	return Candidate
 }
 
-func randTime() time.Duration {
-	min := int64(150 * time.Millisecond)
-	max := int64(300 * time.Millisecond)
-	return time.Duration(rand.Int63n(max-min) + min)
+func (c *candidate) handleRPC(req interface{}) RPCResponse {
+	var rpcErr error
+	var resp interface{}
+
+	switch req := req.(type) {
+	case *pb.VoteRequest:
+		resp = c.handleRequestVote(req)
+	default:
+		rpcErr = fmt.Errorf("unable to response to rpc request")
+	}
+
+	return ToRPCResponse(&resp, rpcErr)
 }

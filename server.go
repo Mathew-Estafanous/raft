@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
 	"net"
 	"sync"
@@ -23,6 +24,7 @@ func newServer(raft *Raft, lis net.Listener) *server {
 }
 
 func (s *server) serve() error {
+	pb.RegisterRaftServer(s.rpc, gRPCRaftServer{r: s.r})
 	err := s.rpc.Serve(s.lis)
 	if err != nil {
 		return err
