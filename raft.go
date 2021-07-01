@@ -60,16 +60,37 @@ func (c *cluster) quorum() int {
 	return len(c.Nodes)/2 + 1
 }
 
+type config struct {
+	minElectTime  time.Duration
+	maxElectTime  time.Duration
+	heartBeatTime time.Duration
+}
+
+func (c config) randElectTime() time.Duration {
+	max := int64(c.maxElectTime)
+	min := int64(c.minElectTime)
+	return time.Duration(rand.Int63n(max-min) + min)
+}
+
+var defaultConfig = &config{
+	minElectTime:  1 * time.Second,
+	maxElectTime:  3 * time.Second,
+	heartBeatTime: 500 * time.Millisecond,
+}
+
 type Raft struct {
 	id     uint64
 	timer  *time.Timer
 	logger *log.Logger
 
+	mu          sync.Mutex
 	// Each raft is part of a cluster that keeps track of all other
 	// nodes and their address location.
 	cluster *cluster
 
-	mu          sync.Mutex
+	conf *config
+
+	leaderId uint64
 	currentTerm uint64
 	state       State
 
@@ -90,6 +111,7 @@ func NewRaft(c *cluster, id uint64) (*Raft, error) {
 		timer:       time.NewTimer(1 * time.Second),
 		logger:      logger,
 		cluster:     c,
+		conf: defaultConfig,
 		currentTerm: 0,
 	}
 	r.state = &follower{Raft: r}
@@ -144,9 +166,13 @@ func (r *Raft) run() {
 }
 
 func (r *Raft) setState(s StateType) {
-	r.logger.Printf("Changing state from %c -> %c", r.state.getType(), s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.state.getType() == s {
+		return
+	}
+
+	r.logger.Printf("Changing state from %c -> %c", r.state.getType(), s)
 	switch s {
 	case Follower:
 		r.state = &follower{Raft: r}
@@ -186,7 +212,6 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	if req.Term > r.currentTerm {
-		r.logger.Println("Stepping down to follower since candidate has a newer term.")
 		r.mu.Lock()
 		r.currentTerm = req.Term
 		r.mu.Unlock()
@@ -200,10 +225,36 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 		r.logger.Printf("Vote granted to candidate %d for term %d", req.CandidateId, req.Term)
 		r.mu.Lock()
 		r.voteTerm = int64(req.Term)
-		r.timer.Reset(randTime())
+		r.timer.Reset(r.conf.randElectTime())
 		r.mu.Unlock()
 		resp.VoteGranted = true
 	}
+	return resp
+}
+
+func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
+	r.timer.Reset(r.conf.randElectTime())
+	r.mu.Lock()
+	resp := &pb.AppendEntriesResponse{
+		Term:    r.currentTerm,
+		Success: false,
+	}
+
+	if req.Term < r.currentTerm {
+		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.currentTerm)
+		return resp
+	} else if req.Term > r.currentTerm {
+		r.currentTerm = req.Term
+	}
+	r.mu.Unlock()
+	r.setState(Follower)
+	r.mu.Lock()
+	if r.leaderId != req.LeaderId {
+		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.currentTerm)
+		r.leaderId = req.LeaderId
+	}
+	r.mu.Unlock()
+	resp.Success = true
 	return resp
 }
 
@@ -213,21 +264,17 @@ func (r *Raft) sendRPC(req interface{}, target node) RPCResponse {
 		return ToRPCResponse(nil, err)
 	}
 	c := pb.NewRaftClient(conn)
-	var rpcResp RPCResponse
+
+	var res interface{}
 	switch req := req.(type) {
 	case *pb.VoteRequest:
-		res, err := c.RequestVote(context.Background(), req)
-		rpcResp = ToRPCResponse(res, err)
+		res, err = c.RequestVote(context.Background(), req)
+	case *pb.AppendEntriesRequest:
+		res, err = c.AppendEntry(context.Background(), req)
 	default:
 		log.Fatalf("[BUG] Could not determine RPC request of %v", req)
 	}
-	return rpcResp
-}
-
-func randTime() time.Duration {
-	min := int64(150 * time.Millisecond)
-	max := int64(350 * time.Millisecond)
-	return time.Duration(rand.Int63n(max-min) + min)
+	return ToRPCResponse(res, err)
 }
 
 type follower struct {
@@ -235,7 +282,7 @@ type follower struct {
 }
 
 func (f *follower) runState() {
-	f.timer.Reset(randTime())
+	f.timer.Reset(f.conf.randElectTime())
 	for f.getState().getType() == Follower {
 		select {
 		case <-f.timer.C:
@@ -259,6 +306,8 @@ func (f *follower) handleRPC(req interface{}) RPCResponse {
 	switch req := req.(type) {
 	case *pb.VoteRequest:
 		resp = f.onRequestVote(req)
+	case *pb.AppendEntriesRequest:
+		resp = f.onAppendEntry(req)
 	default:
 		rpcErr = fmt.Errorf("unable to response to rpc request")
 	}
@@ -279,7 +328,7 @@ func (c *candidate) getType() StateType {
 
 func (c *candidate) runState() {
 	c.mu.Lock()
-	c.electionTimer.Reset(randTime())
+	c.electionTimer.Reset(c.conf.randElectTime())
 	c.currentTerm++
 	c.logger.Printf("Candidate started election for term %v.", c.currentTerm)
 	c.mu.Unlock()
@@ -311,6 +360,10 @@ func (c *candidate) runState() {
 			c.logger.Printf("Election has failed for term %d", c.currentTerm)
 			return
 		case v := <-c.voteCh:
+			if v.error != nil {
+				c.logger.Printf("A vote request has failed: %v", v.error)
+				break
+			}
 			vote := v.resp.(*pb.VoteResponse)
 
 			// If term of peer is greater then go back to follower
@@ -334,7 +387,6 @@ func (c *candidate) runState() {
 			}
 		case <-c.shutdownCh:
 			return
-		default:
 		}
 	}
 }
@@ -346,6 +398,8 @@ func (c *candidate) handleRPC(req interface{}) RPCResponse {
 	switch req := req.(type) {
 	case *pb.VoteRequest:
 		resp = c.onRequestVote(req)
+	case *pb.AppendEntriesRequest:
+		resp = c.onAppendEntry(req)
 	default:
 		rpcErr = fmt.Errorf("unable to response to rpc request")
 	}
@@ -356,6 +410,7 @@ func (c *candidate) handleRPC(req interface{}) RPCResponse {
 type leader struct {
 	*Raft
 	heartbeat *time.Timer
+	appendEntryCh chan RPCResponse
 }
 
 func (l *leader) getType() StateType {
@@ -363,7 +418,37 @@ func (l *leader) getType() StateType {
 }
 
 func (l *leader) runState() {
+	l.heartbeat.Reset(l.conf.heartBeatTime)
+	l.appendEntryCh = make(chan RPCResponse, len(l.cluster.Nodes))
 	for l.getState().getType() == Leader {
+		select {
+		case <-l.heartbeat.C:
+			l.mu.Lock()
+			req := &pb.AppendEntriesRequest{
+				Term: l.currentTerm,
+				LeaderId: l.id,
+			}
+			l.mu.Unlock()
+
+			for _, v := range l.cluster.Nodes {
+				if v.ID != l.id {
+					go func(n node) {
+						r := l.sendRPC(req, n)
+						l.appendEntryCh <- r
+					}(v)
+				}
+			}
+			l.heartbeat.Reset(l.conf.heartBeatTime)
+		case ae := <- l.appendEntryCh:
+			if ae.error != nil {
+				l.logger.Printf("An append entry request has failed: %v", ae.error)
+				break
+			}
+			aeResp := ae.resp.(*pb.AppendEntriesResponse)
+			l.logger.Println(aeResp)
+		case <- l.shutdownCh:
+			return
+		}
 	}
 }
 
@@ -374,6 +459,8 @@ func (l *leader) handleRPC(req interface{}) RPCResponse {
 	switch req := req.(type) {
 	case *pb.VoteRequest:
 		resp = l.onRequestVote(req)
+	case *pb.AppendEntriesRequest:
+		resp = l.onAppendEntry(req)
 	default:
 		rpcErr = fmt.Errorf("unable to response to rpc request")
 	}
