@@ -35,16 +35,38 @@ type node struct {
 	Addr string
 }
 
+// Each raft is part of a cluster that keeps track of all other
+// nodes and their addresses. It also holds agreed upon constants
+// such as heart beat time and election timeout.
 type cluster struct {
+	// Range of possible timeouts for elections or for
+	// no heartbeats from the leader.
+	minTimeout    time.Duration
+	maxTimeout    time.Duration
+
+	// Set time between heart beats (append entries) that the leader
+	// should send out.
+	heartBeatTime time.Duration
+
+	// All the nodes within the raft cluster. Key is an raft id.
 	Nodes  map[uint64]node
 	logger *log.Logger
 }
 
 func NewCluster() *cluster {
 	return &cluster{
+		minTimeout:    1 * time.Second,
+		maxTimeout:    3 * time.Second,
+		heartBeatTime: 500 * time.Millisecond,
 		Nodes:  make(map[uint64]node),
 		logger: log.New(os.Stdout, "[Cluster]", log.LstdFlags),
 	}
+}
+
+func (c *cluster) randElectTime() time.Duration {
+	max := int64(c.maxTimeout)
+	min := int64(c.minTimeout)
+	return time.Duration(rand.Int63n(max-min) + min)
 }
 
 func (c *cluster) addNode(n node) error {
@@ -60,35 +82,13 @@ func (c *cluster) quorum() int {
 	return len(c.Nodes)/2 + 1
 }
 
-type config struct {
-	minElectTime  time.Duration
-	maxElectTime  time.Duration
-	heartBeatTime time.Duration
-}
-
-func (c config) randElectTime() time.Duration {
-	max := int64(c.maxElectTime)
-	min := int64(c.minElectTime)
-	return time.Duration(rand.Int63n(max-min) + min)
-}
-
-var defaultConfig = &config{
-	minElectTime:  1 * time.Second,
-	maxElectTime:  3 * time.Second,
-	heartBeatTime: 500 * time.Millisecond,
-}
-
 type Raft struct {
 	id     uint64
 	timer  *time.Timer
 	logger *log.Logger
 
 	mu          sync.Mutex
-	// Each raft is part of a cluster that keeps track of all other
-	// nodes and their address location.
 	cluster *cluster
-
-	conf *config
 
 	leaderId uint64
 	currentTerm uint64
@@ -111,7 +111,6 @@ func NewRaft(c *cluster, id uint64) (*Raft, error) {
 		timer:       time.NewTimer(1 * time.Second),
 		logger:      logger,
 		cluster:     c,
-		conf: defaultConfig,
 		currentTerm: 0,
 	}
 	r.state = &follower{Raft: r}
@@ -225,7 +224,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 		r.logger.Printf("Vote granted to candidate %d for term %d", req.CandidateId, req.Term)
 		r.mu.Lock()
 		r.voteTerm = int64(req.Term)
-		r.timer.Reset(r.conf.randElectTime())
+		r.timer.Reset(r.cluster.randElectTime())
 		r.mu.Unlock()
 		resp.VoteGranted = true
 	}
@@ -233,7 +232,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 }
 
 func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
-	r.timer.Reset(r.conf.randElectTime())
+	r.timer.Reset(r.cluster.randElectTime())
 	r.mu.Lock()
 	resp := &pb.AppendEntriesResponse{
 		Term:    r.currentTerm,
@@ -277,190 +276,15 @@ func (r *Raft) sendRPC(req interface{}, target node) RPCResponse {
 	return ToRPCResponse(res, err)
 }
 
-type follower struct {
-	*Raft
-}
-
-func (f *follower) runState() {
-	f.timer.Reset(f.conf.randElectTime())
-	for f.getState().getType() == Follower {
-		select {
-		case <-f.timer.C:
-			f.logger.Println("Timeout event has occurred.")
-			f.setState(Candidate)
-			return
-		case <-f.shutdownCh:
-			return
-		}
-	}
-}
-
-func (f *follower) getType() StateType {
-	return Follower
-}
-
-func (f *follower) handleRPC(req interface{}) RPCResponse {
+func (r *Raft) handleRPC(req interface{}) RPCResponse {
 	var rpcErr error
 	var resp interface{}
 
 	switch req := req.(type) {
 	case *pb.VoteRequest:
-		resp = f.onRequestVote(req)
+		resp = r.onRequestVote(req)
 	case *pb.AppendEntriesRequest:
-		resp = f.onAppendEntry(req)
-	default:
-		rpcErr = fmt.Errorf("unable to response to rpc request")
-	}
-
-	return ToRPCResponse(resp, rpcErr)
-}
-
-type candidate struct {
-	*Raft
-	electionTimer *time.Timer
-	votesNeeded   int
-	voteCh        chan RPCResponse
-}
-
-func (c *candidate) getType() StateType {
-	return Candidate
-}
-
-func (c *candidate) runState() {
-	c.mu.Lock()
-	c.electionTimer.Reset(c.conf.randElectTime())
-	c.currentTerm++
-	c.logger.Printf("Candidate started election for term %v.", c.currentTerm)
-	c.mu.Unlock()
-
-	// start the leader election by creating the vote request and sending an
-	// RPC request to all the other nodes in separate goroutines.
-	c.voteCh = make(chan RPCResponse, len(c.cluster.Nodes))
-	c.votesNeeded = c.cluster.quorum() - 1
-	c.voteTerm = int64(c.currentTerm)
-	c.votedFor = c.id
-	req := &pb.VoteRequest{
-		Term:        c.currentTerm,
-		CandidateId: c.id,
-	}
-	for _, v := range c.cluster.Nodes {
-		if v.ID == c.id {
-			continue
-		}
-
-		go func(n node) {
-			res := c.sendRPC(req, n)
-			c.voteCh <- res
-		}(v)
-	}
-
-	for c.getState().getType() == Candidate {
-		select {
-		case <-c.electionTimer.C:
-			c.logger.Printf("Election has failed for term %d", c.currentTerm)
-			return
-		case v := <-c.voteCh:
-			if v.error != nil {
-				c.logger.Printf("A vote request has failed: %v", v.error)
-				break
-			}
-			vote := v.resp.(*pb.VoteResponse)
-
-			// If term of peer is greater then go back to follower
-			// and update current term to the peer's term.
-			if vote.Term > c.currentTerm {
-				c.logger.Println("Demoting since peer's term is greater than current term")
-				c.mu.Lock()
-				c.currentTerm = vote.Term
-				c.mu.Unlock()
-				c.setState(Follower)
-				break
-			}
-
-			if vote.VoteGranted {
-				c.votesNeeded--
-				// Check if the total votes needed has been reached. If so
-				// then election has passed and candidate is now the leader.
-				if c.votesNeeded == 0 {
-					c.setState(Leader)
-				}
-			}
-		case <-c.shutdownCh:
-			return
-		}
-	}
-}
-
-func (c *candidate) handleRPC(req interface{}) RPCResponse {
-	var rpcErr error
-	var resp interface{}
-
-	switch req := req.(type) {
-	case *pb.VoteRequest:
-		resp = c.onRequestVote(req)
-	case *pb.AppendEntriesRequest:
-		resp = c.onAppendEntry(req)
-	default:
-		rpcErr = fmt.Errorf("unable to response to rpc request")
-	}
-
-	return ToRPCResponse(resp, rpcErr)
-}
-
-type leader struct {
-	*Raft
-	heartbeat *time.Timer
-	appendEntryCh chan RPCResponse
-}
-
-func (l *leader) getType() StateType {
-	return Leader
-}
-
-func (l *leader) runState() {
-	l.heartbeat.Reset(l.conf.heartBeatTime)
-	l.appendEntryCh = make(chan RPCResponse, len(l.cluster.Nodes))
-	for l.getState().getType() == Leader {
-		select {
-		case <-l.heartbeat.C:
-			l.mu.Lock()
-			req := &pb.AppendEntriesRequest{
-				Term: l.currentTerm,
-				LeaderId: l.id,
-			}
-			l.mu.Unlock()
-
-			for _, v := range l.cluster.Nodes {
-				if v.ID != l.id {
-					go func(n node) {
-						r := l.sendRPC(req, n)
-						l.appendEntryCh <- r
-					}(v)
-				}
-			}
-			l.heartbeat.Reset(l.conf.heartBeatTime)
-		case ae := <- l.appendEntryCh:
-			if ae.error != nil {
-				l.logger.Printf("An append entry request has failed: %v", ae.error)
-				break
-			}
-			aeResp := ae.resp.(*pb.AppendEntriesResponse)
-			l.logger.Println(aeResp)
-		case <- l.shutdownCh:
-			return
-		}
-	}
-}
-
-func (l *leader) handleRPC(req interface{}) RPCResponse {
-	var rpcErr error
-	var resp interface{}
-
-	switch req := req.(type) {
-	case *pb.VoteRequest:
-		resp = l.onRequestVote(req)
-	case *pb.AppendEntriesRequest:
-		resp = l.onAppendEntry(req)
+		resp = r.onAppendEntry(req)
 	default:
 		rpcErr = fmt.Errorf("unable to response to rpc request")
 	}

@@ -22,7 +22,7 @@ type gRPCRaftServer struct {
 }
 
 func (g gRPCRaftServer) RequestVote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteResponse, error) {
-	r := g.r.getState().handleRPC(request)
+	r := g.r.handleRPC(request)
 	if r.error != nil {
 		return nil, r.error
 	}
@@ -30,7 +30,7 @@ func (g gRPCRaftServer) RequestVote(ctx context.Context, request *pb.VoteRequest
 }
 
 func (g gRPCRaftServer) AppendEntry(ctx context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-	r := g.r.getState().handleRPC(request)
+	r := g.r.handleRPC(request)
 	if r.error != nil {
 		return nil, r.error
 	}
