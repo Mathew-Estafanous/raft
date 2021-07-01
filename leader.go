@@ -8,7 +8,7 @@ import (
 type leader struct {
 	*Raft
 	heartbeat *time.Timer
-	appendEntryCh chan RPCResponse
+	appendEntryCh chan rpcResp
 }
 
 func (l *leader) getType() StateType {
@@ -17,7 +17,7 @@ func (l *leader) getType() StateType {
 
 func (l *leader) runState() {
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
-	l.appendEntryCh = make(chan RPCResponse, len(l.cluster.Nodes))
+	l.appendEntryCh = make(chan rpcResp, len(l.cluster.Nodes))
 	for l.getState().getType() == Leader {
 		select {
 		case <-l.heartbeat.C:

@@ -24,7 +24,7 @@ const (
 type State interface {
 	runState()
 	getType() StateType
-	handleRPC(req interface{}) RPCResponse
+	handleRPC(req interface{}) rpcResp
 }
 
 type node struct {
@@ -100,8 +100,8 @@ type Raft struct {
 	shutdownCh chan bool
 }
 
-// NewRaft creates a new raft node and registers it with the provided cluster.
-func NewRaft(c *cluster, id uint64) (*Raft, error) {
+// New creates a new raft node and registers it with the provided cluster.
+func New(c *cluster, id uint64) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
@@ -112,6 +112,7 @@ func NewRaft(c *cluster, id uint64) (*Raft, error) {
 		logger:      logger,
 		cluster:     c,
 		currentTerm: 0,
+		shutdownCh: make(chan bool, 2),
 	}
 	r.state = &follower{Raft: r}
 	return r, nil
@@ -136,17 +137,22 @@ func (r *Raft) Serve(l net.Listener) error {
 	}
 
 	s := newServer(r, l)
+	defer s.shutdown()
 	r.logger.Printf("Starting raft on %v", l.Addr().String())
 	go func() {
-		err := s.serve()
-		if err != nil {
+		if err := s.serve(); err != nil {
 			r.logger.Printf("gRPC server crashed unexpectedly: %v", err)
 			r.shutdownCh <- true
 		}
 	}()
 
-	go r.run()
+	r.run()
 	return nil
+}
+
+func (r *Raft) Shutdown() {
+	r.logger.Println("Shutting down instance.")
+	r.shutdownCh <- true
 }
 
 // run is where the core logic of the Raft lies. It is a long running routine that
@@ -158,9 +164,8 @@ func (r *Raft) run() {
 			// Raft has shutdown and should no-longer run
 			return
 		default:
+			r.state.runState()
 		}
-
-		r.state.runState()
 	}
 }
 
@@ -257,11 +262,17 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	return resp
 }
 
-func (r *Raft) sendRPC(req interface{}, target node) RPCResponse {
+func (r *Raft) sendRPC(req interface{}, target node) rpcResp {
 	conn, err := grpc.Dial(target.Addr, grpc.WithInsecure())
 	if err != nil {
-		return ToRPCResponse(nil, err)
+		return toRPCResponse(nil, err)
 	}
+
+	defer func() {
+		if err = conn.Close(); err != nil {
+			r.logger.Print("Encountered an issue when closing connection: %v", err)
+		}
+	}()
 	c := pb.NewRaftClient(conn)
 
 	var res interface{}
@@ -273,10 +284,10 @@ func (r *Raft) sendRPC(req interface{}, target node) RPCResponse {
 	default:
 		log.Fatalf("[BUG] Could not determine RPC request of %v", req)
 	}
-	return ToRPCResponse(res, err)
+	return toRPCResponse(res, err)
 }
 
-func (r *Raft) handleRPC(req interface{}) RPCResponse {
+func (r *Raft) handleRPC(req interface{}) rpcResp {
 	var rpcErr error
 	var resp interface{}
 
@@ -286,8 +297,8 @@ func (r *Raft) handleRPC(req interface{}) RPCResponse {
 	case *pb.AppendEntriesRequest:
 		resp = r.onAppendEntry(req)
 	default:
-		rpcErr = fmt.Errorf("unable to response to rpc request")
+		rpcErr = fmt.Errorf("unable to response to rpcResp request")
 	}
 
-	return ToRPCResponse(resp, rpcErr)
+	return toRPCResponse(resp, rpcErr)
 }

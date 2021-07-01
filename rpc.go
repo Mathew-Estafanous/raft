@@ -5,13 +5,13 @@ import (
 	"github.com/Mathew-Estafanous/raft/pb"
 )
 
-type RPCResponse struct {
+type rpcResp struct {
 	resp  interface{}
 	error error
 }
 
-func ToRPCResponse(r interface{}, err error) RPCResponse {
-	return RPCResponse{
+func toRPCResponse(r interface{}, err error) rpcResp {
+	return rpcResp{
 		resp:  r,
 		error: err,
 	}
@@ -36,4 +36,3 @@ func (g gRPCRaftServer) AppendEntry(ctx context.Context, request *pb.AppendEntri
 	}
 	return r.resp.(*pb.AppendEntriesResponse), nil
 }
-

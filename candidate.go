@@ -9,7 +9,7 @@ type candidate struct {
 	*Raft
 	electionTimer *time.Timer
 	votesNeeded   int
-	voteCh        chan RPCResponse
+	voteCh        chan rpcResp
 }
 
 func (c *candidate) getType() StateType {
@@ -23,26 +23,8 @@ func (c *candidate) runState() {
 	c.logger.Printf("Candidate started election for term %v.", c.currentTerm)
 	c.mu.Unlock()
 
-	// start the leader election by creating the vote request and sending an
-	// RPC request to all the other nodes in separate goroutines.
-	c.voteCh = make(chan RPCResponse, len(c.cluster.Nodes))
-	c.votesNeeded = c.cluster.quorum() - 1
-	c.voteTerm = int64(c.currentTerm)
-	c.votedFor = c.id
-	req := &pb.VoteRequest{
-		Term:        c.currentTerm,
-		CandidateId: c.id,
-	}
-	for _, v := range c.cluster.Nodes {
-		if v.ID == c.id {
-			continue
-		}
-
-		go func(n node) {
-			res := c.sendRPC(req, n)
-			c.voteCh <- res
-		}(v)
-	}
+	// Run election for candidate by sending request votes to other nodes.
+	c.sendVoteRequests()
 
 	for c.getState().getType() == Candidate {
 		select {
@@ -78,5 +60,30 @@ func (c *candidate) runState() {
 		case <-c.shutdownCh:
 			return
 		}
+	}
+}
+
+// sendVoteRequests will initialize and send the vote requests to other nodes
+// in the cluster and return results in a vote channel.
+func (c *candidate) sendVoteRequests() {
+	c.voteCh = make(chan rpcResp, len(c.cluster.Nodes))
+	c.votesNeeded = c.cluster.quorum() - 1
+	c.voteTerm = int64(c.currentTerm)
+	c.votedFor = c.id
+	req := &pb.VoteRequest{
+		Term:        c.currentTerm,
+		CandidateId: c.id,
+	}
+
+	for _, v := range c.cluster.Nodes {
+		if v.ID == c.id {
+			continue
+		}
+
+		// Make RPC request in a separate goroutine to prevent blocking operations.
+		go func(n node) {
+			res := c.sendRPC(req, n)
+			c.voteCh <- res
+		}(v)
 	}
 }
