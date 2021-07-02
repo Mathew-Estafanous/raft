@@ -4,7 +4,7 @@ type follower struct {
 	*Raft
 }
 
-func (f *follower) getType() StateType {
+func (f *follower) getType() raftState {
 	return Follower
 }
 

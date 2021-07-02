@@ -24,17 +24,17 @@ var (
 	ErrNotLeader = errors.New("this node is not a leader")
 )
 
-type StateType byte
+type raftState byte
 
 const (
-	Follower  StateType = 'F'
-	Candidate StateType = 'C'
-	Leader    StateType = 'L'
+	Follower  raftState = 'F'
+	Candidate raftState = 'C'
+	Leader    raftState = 'L'
 )
 
-type State interface {
+type state interface {
 	runState()
-	getType() StateType
+	getType() raftState
 }
 
 type node struct {
@@ -102,7 +102,7 @@ type Raft struct {
 	fsm     FSM
 
 	leaderId uint64
-	state    State
+	state    state
 
 	// Persistent state of the raft.
 	currentTerm uint64
@@ -216,7 +216,7 @@ func (r *Raft) run() {
 	}
 }
 
-func (r *Raft) setState(s StateType) {
+func (r *Raft) setState(s raftState) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.state.getType() == s {
@@ -238,11 +238,11 @@ func (r *Raft) setState(s StateType) {
 			heartbeat: time.NewTimer(1 * time.Second),
 		}
 	default:
-		log.Fatalf("[BUG] Provided State type %c is not valid!", s)
+		log.Fatalf("[BUG] Provided state type %c is not valid!", s)
 	}
 }
 
-func (r *Raft) getState() State {
+func (r *Raft) getState() state {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.state

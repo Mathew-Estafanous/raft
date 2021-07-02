@@ -12,7 +12,7 @@ type candidate struct {
 	voteCh        chan rpcResp
 }
 
-func (c *candidate) getType() StateType {
+func (c *candidate) getType() raftState {
 	return Candidate
 }
 
@@ -38,25 +38,7 @@ func (c *candidate) runState() {
 			}
 			vote := v.resp.(*pb.VoteResponse)
 
-			// If term of peer is greater then go back to follower
-			// and update current term to the peer's term.
-			if vote.Term > c.currentTerm {
-				c.logger.Println("Demoting since peer's term is greater than current term")
-				c.mu.Lock()
-				c.currentTerm = vote.Term
-				c.mu.Unlock()
-				c.setState(Follower)
-				break
-			}
-
-			if vote.VoteGranted {
-				c.votesNeeded--
-				// Check if the total votes needed has been reached. If so
-				// then election has passed and candidate is now the leader.
-				if c.votesNeeded == 0 {
-					c.setState(Leader)
-				}
-			}
+			c.handleVoteResponse(vote)
 		case t := <-c.applyCh:
 			t.respond(ErrNotLeader)
 		case <-c.shutdownCh:
@@ -87,5 +69,27 @@ func (c *candidate) sendVoteRequests() {
 			res := c.sendRPC(req, n)
 			c.voteCh <- res
 		}(v)
+	}
+}
+
+func (c *candidate) handleVoteResponse(vote *pb.VoteResponse) {
+	// If term of peer is greater then go back to follower
+	// and update current term to the peer's term.
+	if vote.Term > c.currentTerm {
+		c.logger.Println("Demoting since peer's term is greater than current term")
+		c.mu.Lock()
+		c.currentTerm = vote.Term
+		c.mu.Unlock()
+		c.setState(Follower)
+		return
+	}
+
+	if vote.VoteGranted {
+		c.votesNeeded--
+		// Check if the total votes needed has been reached. If so
+		// then election has passed and candidate is now the leader.
+		if c.votesNeeded == 0 {
+			c.setState(Leader)
+		}
 	}
 }

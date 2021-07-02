@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"github.com/Mathew-Estafanous/raft"
 	"log"
+	"os"
 	"sync"
 )
 
@@ -31,6 +33,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
+
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
@@ -51,6 +54,24 @@ func main() {
 		}
 		wg.Done()
 	}()
+
+	raftM := map[int]*raft.Raft {
+		1: r1,
+		2: r2,
+		3: r3,
+	}
+
+	var r int
+	var cmd string
+	fmt.Println("Raft | CMD")
+	_, err = fmt.Fscanln(os.Stdin, &r, &cmd)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	t := raftM[r].Apply([]byte(cmd))
+	fmt.Println(t.Error())
+
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
 }
