@@ -7,7 +7,7 @@ import (
 
 type leader struct {
 	*Raft
-	heartbeat *time.Timer
+	heartbeat     *time.Timer
 	appendEntryCh chan rpcResp
 }
 
@@ -23,7 +23,7 @@ func (l *leader) runState() {
 		case <-l.heartbeat.C:
 			l.mu.Lock()
 			req := &pb.AppendEntriesRequest{
-				Term: l.currentTerm,
+				Term:     l.currentTerm,
 				LeaderId: l.id,
 			}
 			l.mu.Unlock()
@@ -37,14 +37,14 @@ func (l *leader) runState() {
 				}
 			}
 			l.heartbeat.Reset(l.cluster.heartBeatTime)
-		case ae := <- l.appendEntryCh:
+		case ae := <-l.appendEntryCh:
 			if ae.error != nil {
 				l.logger.Printf("An append entry request has failed: %v", ae.error)
 				break
 			}
 			aeResp := ae.resp.(*pb.AppendEntriesResponse)
 			l.logger.Println(aeResp)
-		case <- l.shutdownCh:
+		case <-l.shutdownCh:
 			return
 		}
 	}

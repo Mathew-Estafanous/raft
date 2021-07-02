@@ -41,8 +41,8 @@ type node struct {
 type cluster struct {
 	// Range of possible timeouts for elections or for
 	// no heartbeats from the leader.
-	minTimeout    time.Duration
-	maxTimeout    time.Duration
+	minTimeout time.Duration
+	maxTimeout time.Duration
 
 	// Set time between heart beats (append entries) that the leader
 	// should send out.
@@ -58,8 +58,8 @@ func NewCluster() *cluster {
 		minTimeout:    1 * time.Second,
 		maxTimeout:    3 * time.Second,
 		heartBeatTime: 500 * time.Millisecond,
-		Nodes:  make(map[uint64]node),
-		logger: log.New(os.Stdout, "[Cluster]", log.LstdFlags),
+		Nodes:         make(map[uint64]node),
+		logger:        log.New(os.Stdout, "[Cluster]", log.LstdFlags),
 	}
 }
 
@@ -87,10 +87,10 @@ type Raft struct {
 	timer  *time.Timer
 	logger *log.Logger
 
-	mu          sync.Mutex
+	mu      sync.Mutex
 	cluster *cluster
 
-	leaderId uint64
+	leaderId    uint64
 	currentTerm uint64
 	state       State
 
@@ -112,7 +112,7 @@ func New(c *cluster, id uint64) (*Raft, error) {
 		logger:      logger,
 		cluster:     c,
 		currentTerm: 0,
-		shutdownCh: make(chan bool, 2),
+		shutdownCh:  make(chan bool),
 	}
 	r.state = &follower{Raft: r}
 	return r, nil
