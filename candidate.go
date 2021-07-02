@@ -57,6 +57,8 @@ func (c *candidate) runState() {
 					c.setState(Leader)
 				}
 			}
+		case t := <-c.applyCh:
+			t.respond(ErrNotLeader)
 		case <-c.shutdownCh:
 			return
 		}

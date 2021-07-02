@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
@@ -11,6 +12,16 @@ import (
 	"os"
 	"sync"
 	"time"
+)
+
+var (
+	// ErrRaftShutdown is thrown when a client operation has been issued after
+	// the raft instance has shutdown.
+	ErrRaftShutdown = errors.New("raft has already shutdown")
+
+	// ErrNotLeader is thrown when a follower/candidate is given some operation
+	// that only a leader is permitted to execute.
+	ErrNotLeader = errors.New("this node is not a leader")
 )
 
 type StateType byte
@@ -24,7 +35,6 @@ const (
 type State interface {
 	runState()
 	getType() StateType
-	handleRPC(req interface{}) rpcResp
 }
 
 type node struct {
@@ -89,19 +99,27 @@ type Raft struct {
 
 	mu      sync.Mutex
 	cluster *cluster
+	fsm     FSM
 
-	leaderId    uint64
+	leaderId uint64
+	state    State
+
+	// Persistent state of the raft.
 	currentTerm uint64
-	state       State
+	votedFor    uint64
+	voteTerm    int64
 
-	votedFor uint64
-	voteTerm int64
+	// Volatile state of the raft.
+	commitIndex int64
+	lastApplied int64
 
-	shutdownCh chan bool
+	shutdownCh  chan bool
+	fsmMutateCh chan Task
+	applyCh     chan *logTask
 }
 
 // New creates a new raft node and registers it with the provided cluster.
-func New(c *cluster, id uint64) (*Raft, error) {
+func New(c *cluster, id uint64, fsm FSM) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
@@ -111,13 +129,19 @@ func New(c *cluster, id uint64) (*Raft, error) {
 		timer:       time.NewTimer(1 * time.Second),
 		logger:      logger,
 		cluster:     c,
+		fsm:         fsm,
 		currentTerm: 0,
 		shutdownCh:  make(chan bool),
+		fsmMutateCh: make(chan Task),
+		applyCh:     make(chan *logTask),
 	}
 	r.state = &follower{Raft: r}
 	return r, nil
 }
 
+// ListenAndServe will start the raft instance and listen using TCP. The listening
+// on the address that is provided as an argument. Note that serving the raft instance
+// is the same as Serve, so it is best to look into that method as well.
 func (r *Raft) ListenAndServe(addr string) error {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -126,6 +150,11 @@ func (r *Raft) ListenAndServe(addr string) error {
 	return r.Serve(lis)
 }
 
+// Serve (as the name suggests) will start up the raft instance and listen using
+// the provided the net.Listener.
+//
+// This is a blocking operation and will only return when the raft instance has Shutdown
+// or a fatal error has occurred.
 func (r *Raft) Serve(l net.Listener) error {
 	n := node{
 		ID:   r.id,
@@ -142,21 +171,39 @@ func (r *Raft) Serve(l net.Listener) error {
 	go func() {
 		if err := s.serve(); err != nil {
 			r.logger.Printf("gRPC server crashed unexpectedly: %v", err)
-			r.shutdownCh <- true
+			r.Shutdown()
 		}
 	}()
 
+	go r.runFSM()
 	r.run()
 	return nil
 }
 
 func (r *Raft) Shutdown() {
 	r.logger.Println("Shutting down instance.")
-	r.shutdownCh <- true
+	close(r.shutdownCh)
 }
 
-// run is where the core logic of the Raft lies. It is a long running routine that
-// periodically checks for recent RPC messages or other events and handles them accordingly.
+// Apply takes a command and attempts to propagate it to the FSM and
+// all other replicas in the raft cluster. A Task is returned which can
+// be used to wait on the completion of the task.
+func (r *Raft) Apply(cmd []byte) Task {
+	logT := &logTask{
+		log: &Log{
+			Cmd: cmd,
+		},
+		errCh: make(chan error),
+	}
+
+	select {
+	case <-r.shutdownCh:
+		logT.respond(ErrRaftShutdown)
+	case r.applyCh <- logT:
+	}
+	return logT
+}
+
 func (r *Raft) run() {
 	for {
 		select {

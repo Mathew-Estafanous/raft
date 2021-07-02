@@ -9,6 +9,9 @@ type leader struct {
 	*Raft
 	heartbeat     *time.Timer
 	appendEntryCh chan rpcResp
+
+	nextIndex  []int64
+	matchIndex []int64
 }
 
 func (l *leader) getType() StateType {
@@ -44,6 +47,8 @@ func (l *leader) runState() {
 			}
 			aeResp := ae.resp.(*pb.AppendEntriesResponse)
 			l.logger.Println(aeResp)
+		case _ = <-l.applyCh:
+
 		case <-l.shutdownCh:
 			return
 		}

@@ -16,6 +16,8 @@ func (f *follower) runState() {
 			f.logger.Println("Timeout event has occurred.")
 			f.setState(Candidate)
 			return
+		case t := <-f.applyCh:
+			t.respond(ErrNotLeader)
 		case <-f.shutdownCh:
 			return
 		}
