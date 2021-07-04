@@ -33,7 +33,6 @@ func main() {
 		log.Fatalln(err)
 	}
 
-
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
@@ -55,7 +54,7 @@ func main() {
 		wg.Done()
 	}()
 
-	raftM := map[int]*raft.Raft {
+	raftM := map[int]*raft.Raft{
 		1: r1,
 		2: r2,
 		3: r3,

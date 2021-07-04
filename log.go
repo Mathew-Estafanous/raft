@@ -4,6 +4,9 @@ package raft
 // These entries are replicated across a majority of raft instances
 // before being considered as committed.
 type Log struct {
+	// Index represents the index in the list of log entries.
+	Index int64
+
 	// Term contains the election term it was added.
 	Term uint64
 

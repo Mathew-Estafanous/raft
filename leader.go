@@ -45,6 +45,7 @@ func (l *leader) sendHeartbeat() {
 	req := &pb.AppendEntriesRequest{
 		Term:     l.currentTerm,
 		LeaderId: l.id,
+		PrevLogTerm: -1,
 	}
 	l.mu.Unlock()
 

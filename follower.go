@@ -15,6 +15,7 @@ func (f *follower) runState() {
 		case <-f.timer.C:
 			f.logger.Println("Timeout event has occurred.")
 			f.setState(Candidate)
+			f.leaderId = -1
 			return
 		case t := <-f.applyCh:
 			t.respond(ErrNotLeader)

@@ -105,6 +105,8 @@ type Raft struct {
 	state    state
 
 	// Persistent state of the raft.
+	logMu 		sync.Mutex
+	log         []*Log
 	currentTerm uint64
 	votedFor    uint64
 	voteTerm    int64
@@ -114,7 +116,7 @@ type Raft struct {
 	lastApplied int64
 
 	shutdownCh  chan bool
-	fsmMutateCh chan Task
+	fsmUpdateCh chan fsmUpdate
 	applyCh     chan *logTask
 }
 
@@ -132,7 +134,7 @@ func New(c *cluster, id uint64, fsm FSM) (*Raft, error) {
 		fsm:         fsm,
 		currentTerm: 0,
 		shutdownCh:  make(chan bool),
-		fsmMutateCh: make(chan Task),
+		fsmUpdateCh: make(chan Task),
 		applyCh:     make(chan *logTask),
 	}
 	r.state = &follower{Raft: r}
@@ -293,18 +295,73 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 
 	if req.Term < r.currentTerm {
 		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.currentTerm)
+		r.mu.Unlock()
 		return resp
 	} else if req.Term > r.currentTerm {
 		r.currentTerm = req.Term
 	}
 	r.mu.Unlock()
 	r.setState(Follower)
+
 	r.mu.Lock()
 	if r.leaderId != req.LeaderId {
 		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.currentTerm)
 		r.leaderId = req.LeaderId
 	}
 	r.mu.Unlock()
+
+	// validate that the PrevLogIndex is not at the starting default index value.
+	r.logMu.Lock()
+	defer r.logMu.Unlock()
+	lastIndex := int64(len(r.log) - 1)
+	if req.PrevLogIndex != -1 {
+		var prevTerm uint64
+		if req.PrevLogIndex == lastIndex {
+			prevTerm = r.log[lastIndex].Term
+		} else {
+			// If the last index is less than the previous entry index then it is guaranteed
+			// that the terms will not match. We can return a unsuccessful response in that case.
+			if lastIndex < req.PrevLogIndex {
+				r.logger.Printf("Request prev. index %v is greater then last index %v", req.PrevLogIndex, lastIndex)
+				return resp
+			}
+			prevTerm = r.log[req.PrevLogIndex].Term
+		}
+
+		if prevTerm != req.PrevLogTerm {
+			r.logger.Printf("Request prev. term %v does not match log term %v", req.PrevLogTerm, prevTerm)
+			return resp
+		}
+	}
+
+	if len(req.Entries) > 0 {
+		for _, entry := range req.Entries {
+			nlog := &Log{
+				Index: entry.Index,
+				Term: entry.Term,
+				Cmd: entry.Data,
+			}
+			// if the entry index is less or equal than last then go back
+			// and remove all log entries from that index to the end.
+			if nlog.Index <= lastIndex {
+				r.log = r.log[:nlog.Index]
+			}
+			r.log = append(r.log, nlog)
+		}
+	}
+
+	r.mu.Lock()
+	// Check if the leader has committed any new entries. If so, then
+	// peer can also commit those changes and push them to the state machine.
+	if req.LeaderCommit > r.commitIndex {
+		for i := r.commitIndex + 1; i <= req.LeaderCommit; i++ {
+			fsmApply := fsmUpdate{cmd: r.log[i].Cmd}
+			r.fsmUpdateCh <- fsmApply
+		}
+		r.commitIndex = req.LeaderCommit
+	}
+	r.mu.Unlock()
+
 	resp.Success = true
 	return resp
 }

@@ -11,13 +11,17 @@ type FSM interface {
 func (r *Raft) runFSM() {
 	for {
 		select {
-		case t := <-r.fsmMutateCh:
+		case t := <-r.fsmUpdateCh:
 			r.logger.Println("Received fsm task from FSM mutate channel: ", t)
 		case <-r.shutdownCh:
 			r.logger.Println("Shutting down FSM worker.")
 			return
 		}
 	}
+}
+
+type fsmUpdate struct {
+	cmd []byte
 }
 
 // Task represents an operation that has been sent to the raft cluster. Every task
