@@ -43,8 +43,8 @@ func (l *leader) runState() {
 func (l *leader) sendHeartbeat() {
 	l.mu.Lock()
 	req := &pb.AppendEntriesRequest{
-		Term:     l.currentTerm,
-		LeaderId: l.id,
+		Term:        l.currentTerm,
+		LeaderId:    l.id,
 		PrevLogTerm: -1,
 	}
 	l.mu.Unlock()

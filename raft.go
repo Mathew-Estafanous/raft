@@ -105,11 +105,10 @@ type Raft struct {
 	state    state
 
 	// Persistent state of the raft.
-	logMu 		sync.Mutex
+	logMu       sync.Mutex
 	log         []*Log
 	currentTerm uint64
 	votedFor    uint64
-	voteTerm    int64
 
 	// Volatile state of the raft.
 	commitIndex int64
@@ -132,9 +131,11 @@ func New(c *cluster, id uint64, fsm FSM) (*Raft, error) {
 		logger:      logger,
 		cluster:     c,
 		fsm:         fsm,
+		log:         make([]*Log, 0),
 		currentTerm: 0,
+		votedFor:    0,
 		shutdownCh:  make(chan bool),
-		fsmUpdateCh: make(chan Task),
+		fsmUpdateCh: make(chan fsmUpdate),
 		applyCh:     make(chan *logTask),
 	}
 	r.state = &follower{Raft: r}
@@ -274,14 +275,19 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 		r.votedFor = 0
 	}
 
-	if r.votedFor == 0 && r.voteTerm != int64(req.Term) {
-		r.logger.Printf("Vote granted to candidate %d for term %d", req.CandidateId, req.Term)
-		r.mu.Lock()
-		r.voteTerm = int64(req.Term)
-		r.timer.Reset(r.cluster.randElectTime())
-		r.mu.Unlock()
-		resp.VoteGranted = true
+	if r.votedFor != 0 {
+		resp.VoteGranted = false
+		return resp
 	}
+
+	// TODO: check that the last log index and term match with the request before approving.
+
+	r.logger.Printf("Vote granted to candidate %d for term %d", req.CandidateId, req.Term)
+	r.mu.Lock()
+	r.timer.Reset(r.cluster.randElectTime())
+	r.mu.Unlock()
+
+	resp.VoteGranted = true
 	return resp
 }
 
@@ -334,31 +340,31 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 		}
 	}
 
-	if len(req.Entries) > 0 {
-		for _, entry := range req.Entries {
-			nlog := &Log{
-				Index: entry.Index,
-				Term: entry.Term,
-				Cmd: entry.Data,
-			}
-			// if the entry index is less or equal than last then go back
-			// and remove all log entries from that index to the end.
-			if nlog.Index <= lastIndex {
-				r.log = r.log[:nlog.Index]
-			}
-			r.log = append(r.log, nlog)
+	for _, entry := range req.Entries {
+		nlog := &Log{
+			Index: entry.Index,
+			Term:  entry.Term,
+			Cmd:   entry.Data,
 		}
+		// if the entry index is less or equal than last then go back
+		// and remove all log entries from that index to the end.
+		if nlog.Index <= lastIndex {
+			r.log = r.log[:nlog.Index]
+		}
+		r.log = append(r.log, nlog)
 	}
 
 	r.mu.Lock()
 	// Check if the leader has committed any new entries. If so, then
 	// peer can also commit those changes and push them to the state machine.
 	if req.LeaderCommit > r.commitIndex {
-		for i := r.commitIndex + 1; i <= req.LeaderCommit; i++ {
-			fsmApply := fsmUpdate{cmd: r.log[i].Cmd}
-			r.fsmUpdateCh <- fsmApply
+		lastIndex = r.log[len(r.log)-1].Index
+		if req.LeaderCommit < lastIndex {
+			r.commitIndex = lastIndex
+		} else {
+			r.commitIndex = req.LeaderCommit
 		}
-		r.commitIndex = req.LeaderCommit
+		r.applyLogs()
 	}
 	r.mu.Unlock()
 
@@ -405,4 +411,15 @@ func (r *Raft) handleRPC(req interface{}) rpcResp {
 	}
 
 	return toRPCResponse(resp, rpcErr)
+}
+
+// applyLogs will apply the newly committed logs to the FSM. The logs that
+// will be applied will be from the lastApplied to the recent commit index.
+func (r *Raft) applyLogs() {
+	for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
+		fsmU := fsmUpdate{}
+		fsmU.cmd = r.log[i].Cmd
+		r.fsmUpdateCh <- fsmU
+	}
+	r.lastApplied = r.commitIndex
 }

@@ -12,7 +12,7 @@ func (r *Raft) runFSM() {
 	for {
 		select {
 		case t := <-r.fsmUpdateCh:
-			r.logger.Println("Received fsm task from FSM mutate channel: ", t)
+			_ = r.fsm.Apply(t.cmd)
 		case <-r.shutdownCh:
 			r.logger.Println("Shutting down FSM worker.")
 			return
