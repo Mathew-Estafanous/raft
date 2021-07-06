@@ -3,6 +3,7 @@ package raft
 import (
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/protobuf/proto"
+	"sync"
 	"time"
 )
 
@@ -11,6 +12,7 @@ type leader struct {
 	heartbeat     *time.Timer
 	appendEntryCh chan appendEntryResp
 
+	indexMu    sync.Mutex
 	nextIndex  map[uint64]int64
 	matchIndex map[uint64]int64
 }
@@ -21,10 +23,12 @@ func (l *leader) getType() raftState {
 
 func (l *leader) runState() {
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
+	l.indexMu.Lock()
 	for k := range l.cluster.Nodes {
 		l.matchIndex[k] = -1
 		l.nextIndex[k] = l.lastIndex + 1
 	}
+	l.indexMu.Unlock()
 
 	for l.getState().getType() == Leader {
 		select {
@@ -36,17 +40,30 @@ func (l *leader) runState() {
 				break
 			}
 			// TODO: handle append entry responses from followers.
-			_ = ae.resp.(*pb.AppendEntriesResponse)
-			//if r.Success {
-			//	l.nextIndex[ae.peerId] += 1
-			//	l.matchIndex[ae.peerId] =
-			//}
+			r := ae.resp.(*pb.AppendEntriesResponse)
+			if r.Term > l.currentTerm {
+				l.setState(Follower)
+				l.mu.Lock()
+				l.currentTerm = r.Term
+				l.votedFor = 0
+				l.mu.Unlock()
+				continue
+			}
+
+			l.indexMu.Lock()
+			if r.Success {
+				l.nextIndex[ae.nodeId] = min(l.lastIndex+1, l.nextIndex[ae.nodeId]+1)
+				l.matchIndex[ae.nodeId] = l.nextIndex[ae.nodeId] - 1
+			} else {
+				l.nextIndex[ae.nodeId] -= 1
+			}
+			l.indexMu.Unlock()
 		case lt := <-l.applyCh:
 			l.mu.Lock()
+			// resetting the heartbeat time since we are going to send append entries, which
+			// would make a heartbeat unnecessary.
 			l.heartbeat.Reset(l.cluster.heartBeatTime)
 			req := pb.AppendEntriesRequest{
-				// all the peers, which would make the heartbeat repetitive.
-				// resetting the heartbeat time since we are going to send append entries to
 				Term:         l.currentTerm,
 				LeaderId:     l.id,
 				PrevLogIndex: l.lastIndex,
@@ -65,20 +82,11 @@ func (l *leader) runState() {
 			l.lastIndex++
 			l.mu.Unlock()
 
-			for k, no := range l.cluster.Nodes {
-				if k == l.id {
+			for _, n := range l.cluster.Nodes {
+				if n.ID == l.id {
 					continue
 				}
-				go func(n node, req *pb.AppendEntriesRequest) {
-					l.logMu.Lock()
-					// TODO: Use the matchIndex as the base instead of sending the entire log.
-					logs := l.log[l.nextIndex[n.ID]:]
-					l.logMu.Unlock()
-					req.Entries = logsToEntries(logs)
-
-					r := l.sendRPC(req, n)
-					l.appendEntryCh <- appendEntryResp{r, n.ID}
-				}(no, proto.Clone(&req).(*pb.AppendEntriesRequest))
+				go l.sendAppendReq(n, proto.Clone(&req).(*pb.AppendEntriesRequest), l.nextIndex[n.ID]+1)
 			}
 		case <-l.shutdownCh:
 			return
@@ -97,18 +105,36 @@ func (l *leader) sendHeartbeat() {
 	}
 	l.mu.Unlock()
 
-	for _, v := range l.cluster.Nodes {
-		if v.ID != l.id {
-			go func(n node) {
-				r := l.sendRPC(req, n)
-				l.appendEntryCh <- appendEntryResp{r, n.ID}
-			}(v)
+	for _, n := range l.cluster.Nodes {
+		if n.ID == l.id {
+			continue
 		}
+		go l.sendAppendReq(n, proto.Clone(req).(*pb.AppendEntriesRequest), l.nextIndex[n.ID])
 	}
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
 }
 
 type appendEntryResp struct {
 	rpcResp
-	peerId uint64
+	nodeId uint64
+}
+
+func (l *leader) sendAppendReq(n node, req *pb.AppendEntriesRequest, nextIdx int64) {
+	l.logMu.Lock()
+	l.indexMu.Lock()
+	// TODO: Use the matchIndex as the base instead of sending the entire log.
+	logs := l.log[:nextIdx]
+	l.indexMu.Unlock()
+	l.logMu.Unlock()
+	req.Entries = logsToEntries(logs)
+
+	r := l.sendRPC(req, n)
+	l.appendEntryCh <- appendEntryResp{r, n.ID}
+}
+
+func min(a, b int64) int64 {
+	if a <= b {
+		return a
+	}
+	return b
 }

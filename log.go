@@ -53,14 +53,13 @@ func (l *logTask) Error() error {
 	return l.err
 }
 
-
 func logsToEntries(logs []*Log) []*pb.Entry {
 	entries := make([]*pb.Entry, 0, len(logs))
 	for _, l := range logs {
 		entries = append(entries, &pb.Entry{
-			Term: l.Term,
+			Term:  l.Term,
 			Index: l.Index,
-			Data: l.Cmd,
+			Data:  l.Cmd,
 		})
 	}
 	return entries
@@ -70,9 +69,9 @@ func entriesToLogs(entries []*pb.Entry) []*Log {
 	logs := make([]*Log, 0, len(entries))
 	for _, e := range entries {
 		logs = append(logs, &Log{
-			Term: e.Term,
+			Term:  e.Term,
 			Index: e.Index,
-			Cmd: e.Data,
+			Cmd:   e.Data,
 		})
 	}
 	return logs

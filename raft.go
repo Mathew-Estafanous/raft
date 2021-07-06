@@ -306,7 +306,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	r.timer.Reset(r.cluster.randElectTime())
 	r.mu.Lock()
 	resp := &pb.AppendEntriesResponse{
-		Id: r.id,
+		Id:      r.id,
 		Term:    r.currentTerm,
 		Success: false,
 	}
@@ -374,6 +374,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 		// if newEntries is greater than 0 then there are new entries that we must add to the log.
 		if n := len(newEntries); n > 0 {
 			r.log = append(r.log, newEntries...)
+			r.logger.Printf("Updated Log: %v", r.log)
 
 			lastEntry := newEntries[n-1]
 			r.lastIndex = lastEntry.Index
