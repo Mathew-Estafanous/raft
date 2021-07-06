@@ -136,6 +136,7 @@ func New(c *cluster, id uint64, fsm FSM) (*Raft, error) {
 		log:         make([]*Log, 0),
 		currentTerm: 0,
 		commitIndex: -1,
+		lastApplied: -1,
 		votedFor:    0,
 		lastIndex:   -1,
 		lastTerm:    0,
@@ -247,6 +248,7 @@ func (r *Raft) setState(s raftState) {
 			appendEntryCh: make(chan appendEntryResp, len(r.cluster.Nodes)),
 			nextIndex:     make(map[uint64]int64),
 			matchIndex:    make(map[uint64]int64),
+			tasks:         make(map[int64]*logTask),
 		}
 	default:
 		log.Fatalf("[BUG] Provided state type %c is not valid!", s)

@@ -11,7 +11,7 @@ import (
 type someFSM struct{}
 
 func (s someFSM) Apply(data []byte) error {
-	log.Println(data)
+	log.Println(string(data))
 	return nil
 }
 

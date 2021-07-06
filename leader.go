@@ -15,6 +15,8 @@ type leader struct {
 	indexMu    sync.Mutex
 	nextIndex  map[uint64]int64
 	matchIndex map[uint64]int64
+
+	tasks map[int64]*logTask
 }
 
 func (l *leader) getType() raftState {
@@ -30,6 +32,14 @@ func (l *leader) runState() {
 	}
 	l.indexMu.Unlock()
 
+	// Before breaking out of leader state, respond to any remaining tasks
+	// with an ErrNotLeader error.
+	defer func() {
+		for _, v := range l.tasks {
+			v.respond(ErrNotLeader)
+		}
+	}()
+
 	for l.getState().getType() == Leader {
 		select {
 		case <-l.heartbeat.C:
@@ -39,7 +49,6 @@ func (l *leader) runState() {
 				l.logger.Printf("An append entry request has failed: %v", ae.error)
 				break
 			}
-			// TODO: handle append entry responses from followers.
 			r := ae.resp.(*pb.AppendEntriesResponse)
 			if r.Term > l.currentTerm {
 				l.setState(Follower)
@@ -52,10 +61,22 @@ func (l *leader) runState() {
 
 			l.indexMu.Lock()
 			if r.Success {
-				l.nextIndex[ae.nodeId] = min(l.lastIndex+1, l.nextIndex[ae.nodeId]+1)
 				l.matchIndex[ae.nodeId] = l.nextIndex[ae.nodeId] - 1
+				l.nextIndex[ae.nodeId] = min(l.lastIndex+1, l.nextIndex[ae.nodeId]+1)
 			} else {
 				l.nextIndex[ae.nodeId] -= 1
+			}
+
+			// Check if a majority of nodes in the raft cluster have matched their logs
+			// at index N. If most have replicated the log then we can consider logs up to
+			// index N to be committed.
+			for N := l.lastIndex; N > l.commitIndex; N-- {
+				if yes := l.majorityMatch(N); yes {
+					l.setCommitIndex(N)
+					// apply the new committed logs to the FSM.
+					l.applyLogs()
+					break
+				}
 			}
 			l.indexMu.Unlock()
 		case lt := <-l.applyCh:
@@ -73,6 +94,8 @@ func (l *leader) runState() {
 
 			lt.log.Term = l.currentTerm
 			lt.log.Index = l.lastIndex + 1
+			// Add the logTask to a map of all the tasks currently being run.
+			l.tasks[lt.log.Index] = lt
 
 			l.logMu.Lock()
 			l.log = append(l.log, lt.log)
@@ -114,11 +137,6 @@ func (l *leader) sendHeartbeat() {
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
 }
 
-type appendEntryResp struct {
-	rpcResp
-	nodeId uint64
-}
-
 func (l *leader) sendAppendReq(n node, req *pb.AppendEntriesRequest, nextIdx int64) {
 	l.logMu.Lock()
 	l.indexMu.Lock()
@@ -130,6 +148,40 @@ func (l *leader) sendAppendReq(n node, req *pb.AppendEntriesRequest, nextIdx int
 
 	r := l.sendRPC(req, n)
 	l.appendEntryCh <- appendEntryResp{r, n.ID}
+}
+
+func (l *leader) setCommitIndex(comIdx int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := l.commitIndex + 1; i <= comIdx; i++ {
+		t, ok := l.tasks[i]
+		if !ok {
+			l.logger.Printf("Couldn't find a client task with index %v", i)
+		}
+		t.respond(nil)
+	}
+	l.logger.Printf("Update Commit Index: From %v -> %v", l.commitIndex, comIdx)
+	l.commitIndex = comIdx
+}
+
+func (l *leader) majorityMatch(N int64) bool {
+	majority := l.cluster.quorum()
+	matchCount := 0
+	for _, v := range l.matchIndex {
+		if v == N {
+			matchCount++
+		}
+
+		if matchCount >= majority {
+			return true
+		}
+	}
+	return false
+}
+
+type appendEntryResp struct {
+	rpcResp
+	nodeId uint64
 }
 
 func min(a, b int64) int64 {
