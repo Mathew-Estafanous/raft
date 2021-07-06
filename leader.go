@@ -46,39 +46,10 @@ func (l *leader) runState() {
 			l.sendHeartbeat()
 		case ae := <-l.appendEntryCh:
 			if ae.error != nil {
-				l.logger.Printf("An append entry request has failed: %v", ae.error)
+				//l.logger.Printf("An append entry request has failed: %v", ae.error)
 				break
 			}
-			r := ae.resp.(*pb.AppendEntriesResponse)
-			if r.Term > l.currentTerm {
-				l.setState(Follower)
-				l.mu.Lock()
-				l.currentTerm = r.Term
-				l.votedFor = 0
-				l.mu.Unlock()
-				continue
-			}
-
-			l.indexMu.Lock()
-			if r.Success {
-				l.matchIndex[ae.nodeId] = l.nextIndex[ae.nodeId] - 1
-				l.nextIndex[ae.nodeId] = min(l.lastIndex+1, l.nextIndex[ae.nodeId]+1)
-			} else {
-				l.nextIndex[ae.nodeId] -= 1
-			}
-
-			// Check if a majority of nodes in the raft cluster have matched their logs
-			// at index N. If most have replicated the log then we can consider logs up to
-			// index N to be committed.
-			for N := l.lastIndex; N > l.commitIndex; N-- {
-				if yes := l.majorityMatch(N); yes {
-					l.setCommitIndex(N)
-					// apply the new committed logs to the FSM.
-					l.applyLogs()
-					break
-				}
-			}
-			l.indexMu.Unlock()
+			l.handleAppendResp(ae)
 		case lt := <-l.applyCh:
 			l.mu.Lock()
 			// resetting the heartbeat time since we are going to send append entries, which
@@ -100,6 +71,10 @@ func (l *leader) runState() {
 			l.logMu.Lock()
 			l.log = append(l.log, lt.log)
 			l.logMu.Unlock()
+
+			l.indexMu.Lock()
+			l.matchIndex[l.id]++
+			l.indexMu.Unlock()
 
 			l.lastTerm = l.currentTerm
 			l.lastIndex++
@@ -148,6 +123,39 @@ func (l *leader) sendAppendReq(n node, req *pb.AppendEntriesRequest, nextIdx int
 
 	r := l.sendRPC(req, n)
 	l.appendEntryCh <- appendEntryResp{r, n.ID}
+}
+
+func (l *leader) handleAppendResp(ae appendEntryResp) {
+	r := ae.resp.(*pb.AppendEntriesResponse)
+	if r.Term > l.currentTerm {
+		l.setState(Follower)
+		l.mu.Lock()
+		l.currentTerm = r.Term
+		l.votedFor = 0
+		l.mu.Unlock()
+		return
+	}
+
+	l.indexMu.Lock()
+	if r.Success {
+		l.matchIndex[ae.nodeId] = l.nextIndex[ae.nodeId] - 1
+		l.nextIndex[ae.nodeId] = min(l.lastIndex+1, l.nextIndex[ae.nodeId]+1)
+	} else {
+		l.nextIndex[ae.nodeId] -= 1
+	}
+
+	// Check if a majority of nodes in the raft cluster have matched their logs
+	// at index N. If most have replicated the log then we can consider logs up to
+	// index N to be committed.
+	for N := l.lastIndex; N > l.commitIndex; N-- {
+		if yes := l.majorityMatch(N); yes {
+			l.setCommitIndex(N)
+			// apply the new committed logs to the FSM.
+			l.applyLogs()
+			break
+		}
+	}
+	l.indexMu.Unlock()
 }
 
 func (l *leader) setCommitIndex(comIdx int64) {

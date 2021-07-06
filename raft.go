@@ -191,7 +191,11 @@ func (r *Raft) Serve(l net.Listener) error {
 
 func (r *Raft) Shutdown() {
 	r.logger.Println("Shutting down instance.")
-	close(r.shutdownCh)
+	select {
+	case <-r.shutdownCh:
+	default:
+		close(r.shutdownCh)
+	}
 }
 
 // Apply takes a command and attempts to propagate it to the FSM and
@@ -300,6 +304,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	r.timer.Reset(r.cluster.randElectTime())
 	r.mu.Unlock()
 
+	r.votedFor = req.CandidateId
 	resp.VoteGranted = true
 	return resp
 }
@@ -388,11 +393,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	// Check if the leader has committed any new entries. If so, then
 	// peer can also commit those changes and push them to the state machine.
 	if req.LeaderCommit > r.commitIndex {
-		if req.LeaderCommit < r.lastIndex {
-			r.commitIndex = r.lastIndex
-		} else {
-			r.commitIndex = req.LeaderCommit
-		}
+		r.commitIndex = min(r.lastIndex, req.LeaderCommit)
 		r.applyLogs()
 	}
 	r.mu.Unlock()

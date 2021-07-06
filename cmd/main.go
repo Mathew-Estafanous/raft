@@ -5,6 +5,7 @@ import (
 	"github.com/Mathew-Estafanous/raft"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 )
 
@@ -35,24 +36,9 @@ func main() {
 
 	var wg sync.WaitGroup
 	wg.Add(3)
-	go func() {
-		if err = r1.ListenAndServe(":8000"); err != nil {
-			log.Println(err)
-		}
-		wg.Done()
-	}()
-	go func() {
-		if err = r2.ListenAndServe(":8001"); err != nil {
-			log.Println(err)
-		}
-		wg.Done()
-	}()
-	go func() {
-		if err = r3.ListenAndServe(":8002"); err != nil {
-			log.Println(err)
-		}
-		wg.Done()
-	}()
+	//go serve(r1, ":8000", &wg)
+	go serve(r2, ":8001", &wg)
+	go serve(r3, ":8002", &wg)
 
 	raftM := map[int]*raft.Raft{
 		1: r1,
@@ -72,10 +58,24 @@ func main() {
 			break
 		}
 
-		t := raftM[r].Apply([]byte(cmd))
-		fmt.Println(t.Error())
+		if cmd == "sh" {
+			raftM[r].Shutdown()
+		} else if cmd == "st" {
+			wg.Add(1)
+			go serve(raftM[r], ":" + strconv.Itoa(7999 + r), &wg)
+		} else {
+			t := raftM[r].Apply([]byte(cmd))
+			fmt.Println(t.Error())
+		}
 	}
 
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
+}
+
+func serve(r *raft.Raft, port string, wg *sync.WaitGroup) {
+	if err := r.ListenAndServe(port); err != nil {
+		log.Println(err)
+	}
+	wg.Done()
 }
