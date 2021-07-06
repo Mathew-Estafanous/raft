@@ -52,7 +52,6 @@ func (c *candidate) runState() {
 func (c *candidate) sendVoteRequests() {
 	c.voteCh = make(chan rpcResp, len(c.cluster.Nodes))
 	c.votesNeeded = c.cluster.quorum() - 1
-	c.voteTerm = int64(c.currentTerm)
 	c.votedFor = c.id
 	req := &pb.VoteRequest{
 		Term:        c.currentTerm,

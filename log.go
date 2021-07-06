@@ -1,5 +1,7 @@
 package raft
 
+import "github.com/Mathew-Estafanous/raft/pb"
+
 // Log entries represent commands that alter the state of the FSM.
 // These entries are replicated across a majority of raft instances
 // before being considered as committed.
@@ -42,4 +44,29 @@ func (l *logTask) Error() error {
 	}
 	l.err = <-l.errCh
 	return l.err
+}
+
+
+func logsToEntries(logs []*Log) []*pb.Entry {
+	entries := make([]*pb.Entry, len(logs))
+	for _, l := range logs {
+		entries = append(entries, &pb.Entry{
+			Term: l.Term,
+			Index: l.Index,
+			Data: l.Cmd,
+		})
+	}
+	return entries
+}
+
+func entriesToLogs(entries []*pb.Entry) []*Log {
+	logs := make([]*Log, len(entries))
+	for _, e := range entries {
+		logs = append(logs, &Log{
+			Term: e.Term,
+			Index: e.Index,
+			Cmd: e.Data,
+		})
+	}
+	return logs
 }

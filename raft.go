@@ -242,8 +242,11 @@ func (r *Raft) setState(s raftState) {
 		}
 	case Leader:
 		r.state = &leader{
-			Raft:      r,
-			heartbeat: time.NewTimer(1 * time.Second),
+			Raft:          r,
+			heartbeat:     time.NewTimer(1 * time.Second),
+			appendEntryCh: make(chan appendEntryResp, len(r.cluster.Nodes)),
+			nextIndex:     make(map[uint64]int64),
+			matchIndex:    make(map[uint64]int64),
 		}
 	default:
 		log.Fatalf("[BUG] Provided state type %c is not valid!", s)
@@ -303,6 +306,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	r.timer.Reset(r.cluster.randElectTime())
 	r.mu.Lock()
 	resp := &pb.AppendEntriesResponse{
+		Id: r.id,
 		Term:    r.currentTerm,
 		Success: false,
 	}
@@ -348,21 +352,33 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	}
 
 	if len(req.Entries) > 0 {
-		for _, entry := range req.Entries {
-			nlog := &Log{
-				Index: entry.Index,
-				Term:  entry.Term,
-				Cmd:   entry.Data,
+		newEntries := make([]*Log, 0)
+		allEntries := entriesToLogs(req.Entries)
+		for i, e := range allEntries {
+			if e.Index > r.lastIndex {
+				newEntries = allEntries[i:]
+				break
 			}
-			// if the entry index is less or equal than last then go back
-			// and remove all log entries from that index to the end.
-			if nlog.Index <= r.lastIndex {
-				r.log = r.log[:nlog.Index]
+
+			logEntry := r.log[e.Index]
+			// if the log entry term at the given index doesn't match with the entry's term
+			// we must remove all logs at the index and beyond and replace it with the new ones.
+			if e.Term != logEntry.Term {
+				r.log = r.log[logEntry.Index:]
+
+				newEntries = allEntries[i:]
+				break
 			}
-			r.log = append(r.log, nlog)
 		}
-		r.lastIndex = int64(len(r.log) - 1)
-		r.lastTerm = r.log[r.lastIndex].Term
+
+		// if newEntries is greater than 0 then there are new entries that we must add to the log.
+		if n := len(newEntries); n > 0 {
+			r.log = append(r.log, newEntries...)
+
+			lastEntry := newEntries[n-1]
+			r.lastIndex = lastEntry.Index
+			r.lastTerm = lastEntry.Term
+		}
 	}
 
 	r.mu.Lock()
