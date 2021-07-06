@@ -37,20 +37,32 @@ func (l *leader) runState() {
 			}
 			// TODO: handle append entry responses from followers.
 			_ = ae.resp.(*pb.AppendEntriesResponse)
-		case _ = <-l.applyCh:
-			// TODO: Add new entry to own log before then making request to peers.
-			// resetting the heartbeat time since we are going to send append entries to
-			// all the peers, which would make the heartbeat repetitive.
-			l.heartbeat.Reset(l.cluster.heartBeatTime)
-
+			//if r.Success {
+			//	l.nextIndex[ae.peerId] += 1
+			//	l.matchIndex[ae.peerId] =
+			//}
+		case lt := <-l.applyCh:
 			l.mu.Lock()
+			l.heartbeat.Reset(l.cluster.heartBeatTime)
 			req := pb.AppendEntriesRequest{
+				// all the peers, which would make the heartbeat repetitive.
+				// resetting the heartbeat time since we are going to send append entries to
 				Term:         l.currentTerm,
 				LeaderId:     l.id,
 				PrevLogIndex: l.lastIndex,
 				PrevLogTerm:  l.lastTerm,
 				LeaderCommit: l.commitIndex,
 			}
+
+			lt.log.Term = l.currentTerm
+			lt.log.Index = l.lastIndex + 1
+
+			l.logMu.Lock()
+			l.log = append(l.log, lt.log)
+			l.logMu.Unlock()
+
+			l.lastTerm = l.currentTerm
+			l.lastIndex++
 			l.mu.Unlock()
 
 			for k, no := range l.cluster.Nodes {
@@ -59,6 +71,7 @@ func (l *leader) runState() {
 				}
 				go func(n node, req *pb.AppendEntriesRequest) {
 					l.logMu.Lock()
+					// TODO: Use the matchIndex as the base instead of sending the entire log.
 					logs := l.log[l.nextIndex[n.ID]:]
 					l.logMu.Unlock()
 					req.Entries = logsToEntries(logs)

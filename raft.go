@@ -331,7 +331,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	r.logMu.Lock()
 	defer r.logMu.Unlock()
 	// validate that the PrevLogIndex is not at the starting default index value.
-	if req.PrevLogIndex != -1 {
+	if req.PrevLogIndex != -1 && r.lastIndex != -1 {
 		var prevTerm uint64
 		if req.PrevLogIndex == r.lastIndex {
 			prevTerm = r.log[r.lastIndex].Term

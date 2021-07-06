@@ -1,6 +1,9 @@
 package raft
 
-import "github.com/Mathew-Estafanous/raft/pb"
+import (
+	"fmt"
+	"github.com/Mathew-Estafanous/raft/pb"
+)
 
 // Log entries represent commands that alter the state of the FSM.
 // These entries are replicated across a majority of raft instances
@@ -14,6 +17,10 @@ type Log struct {
 
 	// Cmd represents the command applied to the FSM.
 	Cmd []byte
+}
+
+func (l Log) String() string {
+	return fmt.Sprintf("{%d, %d, %v}", l.Index, l.Term, string(l.Cmd))
 }
 
 type logTask struct {
@@ -48,7 +55,7 @@ func (l *logTask) Error() error {
 
 
 func logsToEntries(logs []*Log) []*pb.Entry {
-	entries := make([]*pb.Entry, len(logs))
+	entries := make([]*pb.Entry, 0, len(logs))
 	for _, l := range logs {
 		entries = append(entries, &pb.Entry{
 			Term: l.Term,
@@ -60,7 +67,7 @@ func logsToEntries(logs []*Log) []*pb.Entry {
 }
 
 func entriesToLogs(entries []*pb.Entry) []*Log {
-	logs := make([]*Log, len(entries))
+	logs := make([]*Log, 0, len(entries))
 	for _, e := range entries {
 		logs = append(logs, &Log{
 			Term: e.Term,

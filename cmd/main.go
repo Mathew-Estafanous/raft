@@ -62,14 +62,19 @@ func main() {
 
 	var r int
 	var cmd string
-	fmt.Println("Raft | CMD")
-	_, err = fmt.Fscanln(os.Stdin, &r, &cmd)
-	if err != nil {
-		log.Fatal(err)
-	}
+	for {
+		fmt.Println("Raft | CMD")
+		_, err = fmt.Fscanln(os.Stdin, &r, &cmd)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if r == -1 {
+			break
+		}
 
-	t := raftM[r].Apply([]byte(cmd))
-	fmt.Println(t.Error())
+		t := raftM[r].Apply([]byte(cmd))
+		fmt.Println(t.Error())
+	}
 
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
