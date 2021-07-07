@@ -26,7 +26,13 @@ func (l *leader) runState() {
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
 	l.indexMu.Lock()
 	for k := range l.cluster.Nodes {
-		l.matchIndex[k] = -1
+		// Initialize own matchIndex with the last index that has been
+		// added to own log.
+		if k == l.id {
+			l.matchIndex[k] = l.lastIndex
+		} else {
+			l.matchIndex[k] = -1
+		}
 		l.nextIndex[k] = l.lastIndex + 1
 	}
 	l.indexMu.Unlock()
@@ -67,7 +73,7 @@ func (l *leader) runState() {
 			l.logMu.Unlock()
 
 			l.indexMu.Lock()
-			l.matchIndex[l.id]++
+			l.matchIndex[l.id] += 1
 			l.indexMu.Unlock()
 
 			l.lastTerm = l.currentTerm
@@ -136,6 +142,7 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 	}
 
 	l.indexMu.Lock()
+	defer l.indexMu.Unlock()
 	if r.Success {
 		l.matchIndex[ae.nodeId] = l.nextIndex[ae.nodeId] - 1
 		l.nextIndex[ae.nodeId] = min(l.lastIndex+1, l.nextIndex[ae.nodeId]+1)
@@ -154,7 +161,6 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 			break
 		}
 	}
-	l.indexMu.Unlock()
 }
 
 func (l *leader) setCommitIndex(comIdx int64) {
