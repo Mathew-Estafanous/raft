@@ -2,7 +2,6 @@ package raft
 
 import (
 	"github.com/Mathew-Estafanous/raft/pb"
-	"google.golang.org/protobuf/proto"
 	"sync"
 	"time"
 )
@@ -43,25 +42,20 @@ func (l *leader) runState() {
 	for l.getState().getType() == Leader {
 		select {
 		case <-l.heartbeat.C:
-			l.sendHeartbeat()
+			for _, n := range l.cluster.Nodes {
+				if n.ID == l.id {
+					continue
+				}
+				go l.sendAppendReq(n, l.nextIndex[n.ID], true)
+			}
+			l.heartbeat.Reset(l.cluster.heartBeatTime)
 		case ae := <-l.appendEntryCh:
 			if ae.error != nil {
-				//l.logger.Printf("An append entry request has failed: %v", ae.error)
 				break
 			}
 			l.handleAppendResp(ae)
 		case lt := <-l.applyCh:
 			l.mu.Lock()
-			// resetting the heartbeat time since we are going to send append entries, which
-			// would make a heartbeat unnecessary.
-			l.heartbeat.Reset(l.cluster.heartBeatTime)
-			req := pb.AppendEntriesRequest{
-				Term:         l.currentTerm,
-				LeaderId:     l.id,
-				PrevLogIndex: l.lastIndex,
-				PrevLogTerm:  l.lastTerm,
-				LeaderCommit: l.commitIndex,
-			}
 
 			lt.log.Term = l.currentTerm
 			lt.log.Index = l.lastIndex + 1
@@ -80,11 +74,15 @@ func (l *leader) runState() {
 			l.lastIndex++
 			l.mu.Unlock()
 
+			// resetting the heartbeat time since we are going to send append entries, which
+			// would make a heartbeat unnecessary.
+			l.heartbeat.Reset(l.cluster.heartBeatTime)
+
 			for _, n := range l.cluster.Nodes {
 				if n.ID == l.id {
 					continue
 				}
-				go l.sendAppendReq(n, proto.Clone(&req).(*pb.AppendEntriesRequest), l.nextIndex[n.ID]+1)
+				go l.sendAppendReq(n, l.nextIndex[n.ID], false)
 			}
 		case <-l.shutdownCh:
 			return
@@ -92,34 +90,35 @@ func (l *leader) runState() {
 	}
 }
 
-func (l *leader) sendHeartbeat() {
-	l.mu.Lock()
-	req := &pb.AppendEntriesRequest{
-		Term:         l.currentTerm,
-		LeaderId:     l.id,
-		PrevLogIndex: l.lastIndex,
-		PrevLogTerm:  l.lastTerm,
-		LeaderCommit: l.commitIndex,
-	}
-	l.mu.Unlock()
-
-	for _, n := range l.cluster.Nodes {
-		if n.ID == l.id {
-			continue
-		}
-		go l.sendAppendReq(n, proto.Clone(req).(*pb.AppendEntriesRequest), l.nextIndex[n.ID])
-	}
-	l.heartbeat.Reset(l.cluster.heartBeatTime)
-}
-
-func (l *leader) sendAppendReq(n node, req *pb.AppendEntriesRequest, nextIdx int64) {
+func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 	l.logMu.Lock()
 	l.indexMu.Lock()
+	prevIndex := nextIdx - 1
+	var prevTerm uint64
+	if prevIndex <= -1 {
+		prevTerm = 0
+	} else {
+		prevTerm = l.log[prevIndex].Term
+	}
+
+	if !isHeartbeat || nextIdx <= l.lastIndex {
+		nextIdx++
+	}
 	// TODO: Use the matchIndex as the base instead of sending the entire log.
 	logs := l.log[:nextIdx]
 	l.indexMu.Unlock()
 	l.logMu.Unlock()
-	req.Entries = logsToEntries(logs)
+
+	l.mu.Lock()
+	req := &pb.AppendEntriesRequest{
+		Term:         l.currentTerm,
+		LeaderId:     l.id,
+		LeaderCommit: l.commitIndex,
+		PrevLogIndex: prevIndex,
+		PrevLogTerm:  prevTerm,
+		Entries:      logsToEntries(logs),
+	}
+	l.mu.Unlock()
 
 	r := l.sendRPC(req, n)
 	l.appendEntryCh <- appendEntryResp{r, n.ID}
@@ -167,6 +166,7 @@ func (l *leader) setCommitIndex(comIdx int64) {
 			l.logger.Printf("Couldn't find a client task with index %v", i)
 		}
 		t.respond(nil)
+		delete(l.tasks, i)
 	}
 	l.logger.Printf("Update Commit Index: From %v -> %v", l.commitIndex, comIdx)
 	l.commitIndex = comIdx
