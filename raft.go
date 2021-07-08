@@ -38,17 +38,16 @@ type state interface {
 }
 
 type node struct {
-	// An ID that uniquely identifies the raft in the cluster.
+	// An ID that uniquely identifies the raft in the Cluster.
 	ID uint64
 
 	// Address of the node, that other rafts can contact.
 	Addr string
 }
 
-// Each raft is part of a cluster that keeps track of all other
-// nodes and their addresses. It also holds agreed upon constants
-// such as heart beat time and election timeout.
-type cluster struct {
+// Cluster  keeps track of all other nodes and their addresses.
+// It also holds agreed upon constants such as heart beat time and election timeout.
+type Cluster struct {
 	// Range of possible timeouts for elections or for
 	// no heartbeats from the leader.
 	minTimeout time.Duration
@@ -58,13 +57,13 @@ type cluster struct {
 	// should send out.
 	heartBeatTime time.Duration
 
-	// All the nodes within the raft cluster. Key is an raft id.
+	// All the nodes within the raft Cluster. Key is an raft id.
 	Nodes  map[uint64]node
 	logger *log.Logger
 }
 
-func NewCluster() *cluster {
-	return &cluster{
+func NewCluster() *Cluster {
+	return &Cluster{
 		minTimeout:    1 * time.Second,
 		maxTimeout:    3 * time.Second,
 		heartBeatTime: 500 * time.Millisecond,
@@ -73,13 +72,13 @@ func NewCluster() *cluster {
 	}
 }
 
-func (c *cluster) randElectTime() time.Duration {
+func (c *Cluster) randElectTime() time.Duration {
 	max := int64(c.maxTimeout)
 	min := int64(c.minTimeout)
 	return time.Duration(rand.Int63n(max-min) + min)
 }
 
-func (c *cluster) addNode(n node) error {
+func (c *Cluster) addNode(n node) error {
 	if _, ok := c.Nodes[n.ID]; ok {
 		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
 	}
@@ -88,7 +87,7 @@ func (c *cluster) addNode(n node) error {
 	return nil
 }
 
-func (c *cluster) quorum() int {
+func (c *Cluster) quorum() int {
 	return len(c.Nodes)/2 + 1
 }
 
@@ -98,7 +97,7 @@ type Raft struct {
 	logger *log.Logger
 
 	mu      sync.Mutex
-	cluster *cluster
+	cluster *Cluster
 	fsm     FSM
 
 	leaderId uint64
@@ -121,8 +120,8 @@ type Raft struct {
 	applyCh     chan *logTask
 }
 
-// New creates a new raft node and registers it with the provided cluster.
-func New(c *cluster, id uint64, fsm FSM) (*Raft, error) {
+// New creates a new raft node and registers it with the provided Cluster.
+func New(c *Cluster, id uint64, fsm FSM) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
@@ -199,7 +198,7 @@ func (r *Raft) Shutdown() {
 }
 
 // Apply takes a command and attempts to propagate it to the FSM and
-// all other replicas in the raft cluster. A Task is returned which can
+// all other replicas in the raft Cluster. A Task is returned which can
 // be used to wait on the completion of the task.
 func (r *Raft) Apply(cmd []byte) Task {
 	logT := &logTask{

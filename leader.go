@@ -150,7 +150,7 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 		l.nextIndex[ae.nodeId] -= 1
 	}
 
-	// Check if a majority of nodes in the raft cluster have matched their logs
+	// Check if a majority of nodes in the raft Cluster have matched their logs
 	// at index N. If most have replicated the log then we can consider logs up to
 	// index N to be committed.
 	for N := l.lastIndex; N > l.commitIndex; N-- {

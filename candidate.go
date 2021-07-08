@@ -48,7 +48,7 @@ func (c *candidate) runState() {
 }
 
 // sendVoteRequests will initialize and send the vote requests to other nodes
-// in the cluster and return results in a vote channel.
+// in the Cluster and return results in a vote channel.
 func (c *candidate) sendVoteRequests() {
 	c.voteCh = make(chan rpcResp, len(c.cluster.Nodes))
 	c.votesNeeded = c.cluster.quorum() - 1

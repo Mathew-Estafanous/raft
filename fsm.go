@@ -1,7 +1,7 @@
 package raft
 
 // FSM (finite state machine) defines an interface that must be implemented by
-// the client to receive commands sent by the raft cluster.
+// the client to receive commands sent by the raft Cluster.
 type FSM interface {
 	// Apply will be invoked when a log has been successfully committed and
 	// should then be applied upon the state of the fsm.
@@ -24,7 +24,7 @@ type fsmUpdate struct {
 	cmd []byte
 }
 
-// Task represents an operation that has been sent to the raft cluster. Every task
+// Task represents an operation that has been sent to the raft Cluster. Every task
 // represents a future operation that returns when all operations have been applied
 // to other raft replications.
 type Task interface {
