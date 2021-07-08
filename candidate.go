@@ -54,10 +54,10 @@ func (c *candidate) sendVoteRequests() {
 	c.votesNeeded = c.cluster.quorum() - 1
 	c.votedFor = c.id
 	req := &pb.VoteRequest{
-		Term:        c.currentTerm,
-		CandidateId: c.id,
+		Term:         c.currentTerm,
+		CandidateId:  c.id,
 		LastLogIndex: c.lastIndex,
-		LastLogTerm: c.lastTerm,
+		LastLogTerm:  c.lastTerm,
 	}
 
 	for _, v := range c.cluster.Nodes {

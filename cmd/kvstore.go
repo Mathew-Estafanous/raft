@@ -10,7 +10,7 @@ import (
 )
 
 type kvStore struct {
-	r *raft.Raft
+	r    *raft.Raft
 	data map[string]string
 }
 
@@ -30,7 +30,7 @@ func (k *kvStore) Apply(data []byte) error {
 	return nil
 }
 
-func (k *kvStore) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
+func (k *kvStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	paths := strings.Split(r.URL.Path, "/")
 	w.Header().Set("Content-Type", "text/plain")
 	switch r.Method {

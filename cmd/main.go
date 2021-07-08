@@ -1,3 +1,8 @@
+// This is meant as a very simple example of how this raft implementation can be
+// used to create a distributed KV store database.
+//
+// The code here is not meant to be thoroughly tested or used in any production
+// environment and just showcases the capabilities of this raft library.
 package main
 
 import (
@@ -29,14 +34,14 @@ func makeAndRunKV(id uint64, c *raft.Cluster, wg *sync.WaitGroup) {
 		log.Fatalln(err)
 	}
 
-	raftPort := ":" + strconv.Itoa(int(6000 + id))
+	raftPort := ":" + strconv.Itoa(int(6000+id))
 	go func() {
 		if err := r.ListenAndServe(raftPort); err != nil {
 			log.Println(err)
 		}
 	}()
 
-	kvPort := ":" + strconv.Itoa(int(8000 + id))
+	kvPort := ":" + strconv.Itoa(int(8000+id))
 	if err = http.ListenAndServe(kvPort, kv); err != nil {
 		log.Println(err)
 	}
