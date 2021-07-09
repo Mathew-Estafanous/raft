@@ -12,7 +12,10 @@ func (r *Raft) runFSM() {
 	for {
 		select {
 		case t := <-r.fsmUpdateCh:
-			_ = r.fsm.Apply(t.cmd)
+			err := r.fsm.Apply(t.cmd)
+			if err != nil {
+				r.logger.Printf("[FSM ERROR] Failed to properly apply cmd %v.", t.cmd)
+			}
 		case <-r.shutdownCh:
 			r.logger.Println("Shutting down FSM worker.")
 			return

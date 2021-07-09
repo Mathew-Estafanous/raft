@@ -5,12 +5,9 @@ import (
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
 	"net"
-	"sync"
 )
 
 type server struct {
-	mu sync.Mutex
-
 	r   *Raft
 	lis net.Listener
 	rpc *grpc.Server

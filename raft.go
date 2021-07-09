@@ -91,6 +91,9 @@ func (c *Cluster) quorum() int {
 	return len(c.Nodes)/2 + 1
 }
 
+// Raft represents a node within the entire raft cluster. It contains the core logic
+// of the consensus algorithm such as keeping track of leaders, replicated logs and
+// other important state.
 type Raft struct {
 	id     uint64
 	timer  *time.Timer
@@ -242,12 +245,12 @@ func (r *Raft) setState(s raftState) {
 	case Candidate:
 		r.state = &candidate{
 			Raft:          r,
-			electionTimer: time.NewTimer(1 * time.Second),
+			electionTimer: time.NewTimer(1 * time.Hour),
 		}
 	case Leader:
 		r.state = &leader{
 			Raft:          r,
-			heartbeat:     time.NewTimer(1 * time.Second),
+			heartbeat:     time.NewTimer(1 * time.Hour),
 			appendEntryCh: make(chan appendEntryResp, len(r.cluster.Nodes)),
 			nextIndex:     make(map[uint64]int64),
 			matchIndex:    make(map[uint64]int64),
