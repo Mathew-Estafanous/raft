@@ -115,7 +115,6 @@ type Raft struct {
 	// Volatile state of the raft.
 	commitIndex int64
 	lastApplied int64
-	lastTerm    uint64
 
 	shutdownCh  chan bool
 	fsmUpdateCh chan fsmUpdate
@@ -130,7 +129,7 @@ func New(c *Cluster, id uint64, fsm FSM, logStr LogStore) (*Raft, error) {
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
 	r := &Raft{
 		id:          id,
-		timer:       time.NewTimer(1 * time.Second),
+		timer:       time.NewTimer(1 * time.Hour),
 		logger:      logger,
 		cluster:     c,
 		fsm:         fsm,
@@ -140,7 +139,6 @@ func New(c *Cluster, id uint64, fsm FSM, logStr LogStore) (*Raft, error) {
 		commitIndex: -1,
 		lastApplied: -1,
 		votedFor:    0,
-		lastTerm:    0,
 		shutdownCh:  make(chan bool),
 		fsmUpdateCh: make(chan fsmUpdate),
 		applyCh:     make(chan *logTask),
@@ -296,7 +294,8 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	lastIdx := r.logStore.LastIndex()
-	if lastIdx > req.LastLogIndex || (r.lastTerm == req.LastLogTerm && lastIdx > req.LastLogIndex) {
+	lastTerm := r.logStore.LastTerm()
+	if lastIdx > req.LastLogIndex || (lastTerm == req.LastLogTerm && lastIdx > req.LastLogIndex) {
 		r.logger.Printf("[Vote Denied] Candidate's log term/index are not up to date.")
 		return resp
 	}
@@ -342,12 +341,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	if req.PrevLogIndex != -1 && lastIdx != -1 {
 		var prevTerm uint64
 		if req.PrevLogIndex == lastIdx {
-			prevLog, err := r.logStore.GetLog(lastIdx)
-			if err != nil {
-				r.logger.Printf("Unable to get log at previous index %v", lastIdx)
-				return resp
-			}
-			prevTerm = prevLog.Term
+			prevTerm = r.logStore.LastTerm()
 		} else {
 			// If the last index is less than the leader's previous log index then it's guaranteed
 			// that the terms will not match. We can return a unsuccessful response in that case.

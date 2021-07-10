@@ -17,6 +17,9 @@ type LogStore interface {
 	// been added to the log storage.
 	LastIndex() int64
 
+	// LastTerm will return the last log term found in the list of log entries.
+	LastTerm() uint64
+
 	// GetLog will return the log found at the given index. An error will
 	// be returned if the index is out of bounds.
 	GetLog(index int64) (*Log, error)
@@ -35,24 +38,34 @@ type LogStore interface {
 type InMemLogStore struct {
 	mu   sync.Mutex
 	logs []*Log
+	lastIdx int64
+	lastTerm uint64
 }
 
 func NewMemLogStore() *InMemLogStore {
 	return &InMemLogStore{
 		logs: make([]*Log, 0),
+		lastIdx: -1,
+		lastTerm: 0,
 	}
 }
 
 func (m *InMemLogStore) LastIndex() int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return int64(len(m.logs) - 1)
+	return m.lastIdx
+}
+
+func (m *InMemLogStore) LastTerm() uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastTerm
 }
 
 func (m *InMemLogStore) GetLog(index int64) (*Log, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if i := m.LastIndex(); i < index {
+	if i := m.lastIdx; i < index {
 		return nil, ErrLogNotFound
 	}
 	return m.logs[index], nil
@@ -62,6 +75,7 @@ func (m *InMemLogStore) AppendLogs(logs []*Log) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logs = append(m.logs, logs...)
+	m.updateLastLog()
 	return nil
 }
 
@@ -69,6 +83,7 @@ func (m *InMemLogStore) DeleteRange(min, max int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logs = append(m.logs[:min], m.logs[max+1:]...)
+	m.updateLastLog()
 	return nil
 }
 
@@ -76,4 +91,13 @@ func (m *InMemLogStore) AllLogs() ([]*Log, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.logs, nil
+}
+
+func (m *InMemLogStore) updateLastLog() {
+	if len(m.logs)-1 < 0 {
+		return
+	}
+
+	m.lastIdx = m.logs[len(m.logs)-1].Index
+	m.lastTerm = m.logs[len(m.logs)-1].Term
 }

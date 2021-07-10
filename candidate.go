@@ -57,7 +57,7 @@ func (c *candidate) sendVoteRequests() {
 		Term:         c.currentTerm,
 		CandidateId:  c.id,
 		LastLogIndex: c.logStore.LastIndex(),
-		LastLogTerm:  c.lastTerm,
+		LastLogTerm:  c.logStore.LastTerm(),
 	}
 
 	for _, v := range c.cluster.Nodes {

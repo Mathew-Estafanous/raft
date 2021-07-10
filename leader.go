@@ -25,7 +25,6 @@ func (l *leader) getType() raftState {
 func (l *leader) runState() {
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
 	l.indexMu.Lock()
-
 	for k := range l.cluster.Nodes {
 		// Initialize own matchIndex with the last index that has been
 		// added to own log.
@@ -50,10 +49,9 @@ func (l *leader) runState() {
 		select {
 		case <-l.heartbeat.C:
 			for _, n := range l.cluster.Nodes {
-				if n.ID == l.id {
-					continue
+				if n.ID != l.id {
+					go l.sendAppendReq(n, l.nextIndex[n.ID], true)
 				}
-				go l.sendAppendReq(n, l.nextIndex[n.ID], true)
 			}
 			l.heartbeat.Reset(l.cluster.heartBeatTime)
 		case ae := <-l.appendEntryCh:
@@ -63,7 +61,6 @@ func (l *leader) runState() {
 			l.handleAppendResp(ae)
 		case lt := <-l.applyCh:
 			l.mu.Lock()
-
 			lt.log.Term = l.currentTerm
 			lt.log.Index = l.logStore.LastIndex() + 1
 
@@ -79,8 +76,6 @@ func (l *leader) runState() {
 			l.indexMu.Lock()
 			l.matchIndex[l.id] += 1
 			l.indexMu.Unlock()
-
-			l.lastTerm = l.currentTerm
 			l.mu.Unlock()
 
 			// resetting the heartbeat time since we are going to send append entries, which
@@ -88,10 +83,9 @@ func (l *leader) runState() {
 			l.heartbeat.Reset(l.cluster.heartBeatTime)
 
 			for _, n := range l.cluster.Nodes {
-				if n.ID == l.id {
-					continue
+				if n.ID != l.id {
+					go l.sendAppendReq(n, l.nextIndex[n.ID], false)
 				}
-				go l.sendAppendReq(n, l.nextIndex[n.ID], false)
 			}
 		case <-l.shutdownCh:
 			return
@@ -160,7 +154,6 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 	} else {
 		l.nextIndex[ae.nodeId] -= 1
 	}
-
 	// Check if a majority of nodes in the raft Cluster have matched their logs
 	// at index N. If most have replicated the log then we can consider logs up to
 	// index N to be committed.
