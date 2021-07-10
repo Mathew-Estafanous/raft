@@ -56,7 +56,7 @@ func (c *candidate) sendVoteRequests() {
 	req := &pb.VoteRequest{
 		Term:         c.currentTerm,
 		CandidateId:  c.id,
-		LastLogIndex: c.lastIndex,
+		LastLogIndex: c.logStore.LastIndex(),
 		LastLogTerm:  c.lastTerm,
 	}
 

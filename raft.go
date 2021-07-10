@@ -115,7 +115,6 @@ type Raft struct {
 	// Volatile state of the raft.
 	commitIndex int64
 	lastApplied int64
-	lastIndex   int64
 	lastTerm    uint64
 
 	shutdownCh  chan bool
@@ -141,7 +140,6 @@ func New(c *Cluster, id uint64, fsm FSM, logStr LogStore) (*Raft, error) {
 		commitIndex: -1,
 		lastApplied: -1,
 		votedFor:    0,
-		lastIndex:   -1,
 		lastTerm:    0,
 		shutdownCh:  make(chan bool),
 		fsmUpdateCh: make(chan fsmUpdate),
@@ -297,7 +295,8 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 		return resp
 	}
 
-	if r.lastIndex > req.LastLogIndex || (r.lastTerm == req.LastLogTerm && r.lastIndex > req.LastLogIndex) {
+	lastIdx := r.logStore.LastIndex()
+	if lastIdx > req.LastLogIndex || (r.lastTerm == req.LastLogTerm && lastIdx > req.LastLogIndex) {
 		r.logger.Printf("[Vote Denied] Candidate's log term/index are not up to date.")
 		return resp
 	}
@@ -338,15 +337,10 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	}
 	r.mu.Unlock()
 
-	var lastIdx int64
 	// validate that the PrevLogIndex is not at the starting default index value.
-	if req.PrevLogIndex != -1 && r.lastIndex != -1 {
+	lastIdx := r.logStore.LastIndex()
+	if req.PrevLogIndex != -1 && lastIdx != -1 {
 		var prevTerm uint64
-		lastIdx, err := r.logStore.LastIndex()
-		if err != nil {
-			r.logger.Println("Encountered an error when trying to get last index from logs.")
-			return resp
-		}
 		if req.PrevLogIndex == lastIdx {
 			prevLog, err := r.logStore.GetLog(lastIdx)
 			if err != nil {
@@ -362,7 +356,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 				return resp
 			}
 
-			prevLog, err  := r.logStore.GetLog(req.PrevLogIndex)
+			prevLog, err := r.logStore.GetLog(req.PrevLogIndex)
 			if err != nil {
 				r.logger.Printf("Unable to get log at previous index %v", req.PrevLogIndex)
 				return resp
@@ -380,7 +374,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 		newEntries := make([]*Log, 0)
 		allEntries := entriesToLogs(req.Entries)
 		for i, e := range allEntries {
-			if e.Index > r.lastIndex {
+			if e.Index > lastIdx {
 				newEntries = allEntries[i:]
 				break
 			}
@@ -402,7 +396,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 
 		// if newEntries is greater than 0 then there are new entries that we must add to the log.
 		if n := len(newEntries); n > 0 {
-			err := r.logStore.StoreLogs(newEntries)
+			err := r.logStore.AppendLogs(newEntries)
 			if err != nil {
 				r.logger.Println("Failed to append new log entries to log store.")
 				return resp
@@ -418,7 +412,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	// Check if the leader has committed any new entries. If so, then
 	// peer can also commit those changes and push them to the state machine.
 	if req.LeaderCommit > r.commitIndex {
-		r.commitIndex = min(r.lastIndex, req.LeaderCommit)
+		r.commitIndex = min(r.logStore.LastIndex(), req.LeaderCommit)
 		r.applyLogs()
 	}
 	r.mu.Unlock()

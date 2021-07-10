@@ -26,21 +26,15 @@ func (l *leader) runState() {
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
 	l.indexMu.Lock()
 
-	lastIdx, err := l.logStore.LastIndex()
-	if err != nil {
-		l.logger.Println("Failed to get last index of leader")
-		return
-	}
-
 	for k := range l.cluster.Nodes {
 		// Initialize own matchIndex with the last index that has been
 		// added to own log.
 		if k == l.id {
-			l.matchIndex[k] = lastIdx
+			l.matchIndex[k] = l.logStore.LastIndex()
 		} else {
 			l.matchIndex[k] = -1
 		}
-		l.nextIndex[k] = lastIdx + 1
+		l.nextIndex[k] = l.logStore.LastIndex() + 1
 	}
 	l.indexMu.Unlock()
 
@@ -71,9 +65,9 @@ func (l *leader) runState() {
 			l.mu.Lock()
 
 			lt.log.Term = l.currentTerm
-			lt.log.Index = l.lastIndex + 1
+			lt.log.Index = l.logStore.LastIndex() + 1
 
-			if err := l.logStore.StoreLogs([]*Log{lt.log}); err != nil {
+			if err := l.logStore.AppendLogs([]*Log{lt.log}); err != nil {
 				l.logger.Printf("Failed to store new log %v.", lt.log)
 				lt.respond(ErrFailedToStore)
 				break
@@ -87,7 +81,6 @@ func (l *leader) runState() {
 			l.indexMu.Unlock()
 
 			l.lastTerm = l.currentTerm
-			l.lastIndex++
 			l.mu.Unlock()
 
 			// resetting the heartbeat time since we are going to send append entries, which
@@ -121,17 +114,16 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 		prevTerm = log.Term
 	}
 
-	lastIdx, err := l.logStore.LastIndex()
-	if err != nil {
-		l.logger.Println("Failed to get last index of leader")
-		return
-	}
-	if !isHeartbeat || nextIdx <= lastIdx {
+	if !isHeartbeat || nextIdx <= l.logStore.LastIndex() {
 		nextIdx++
 	}
 	l.indexMu.Unlock()
 	// TODO: Use the matchIndex as the base instead of sending the entire log.
 	logs, err := l.logStore.AllLogs()
+	if err != nil {
+		l.logger.Printf("Failed to get all logs from store.")
+		return
+	}
 	logs = logs[:nextIdx]
 
 	l.mu.Lock()
@@ -164,7 +156,7 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 	defer l.indexMu.Unlock()
 	if r.Success {
 		l.matchIndex[ae.nodeId] = l.nextIndex[ae.nodeId] - 1
-		l.nextIndex[ae.nodeId] = min(l.lastIndex+1, l.nextIndex[ae.nodeId]+1)
+		l.nextIndex[ae.nodeId] = min(l.logStore.LastIndex()+1, l.nextIndex[ae.nodeId]+1)
 	} else {
 		l.nextIndex[ae.nodeId] -= 1
 	}
@@ -172,7 +164,7 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 	// Check if a majority of nodes in the raft Cluster have matched their logs
 	// at index N. If most have replicated the log then we can consider logs up to
 	// index N to be committed.
-	for N := l.lastIndex; N > l.commitIndex; N-- {
+	for N := l.logStore.LastIndex(); N > l.commitIndex; N-- {
 		if yes := l.majorityMatch(N); yes {
 			l.setCommitIndex(N)
 			// apply the new committed logs to the FSM.

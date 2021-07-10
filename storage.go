@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	ErrLogNotFound = errors.New("the log could not be found in the storage")
+	ErrLogNotFound   = errors.New("the log could not be found in the storage")
 	ErrFailedToStore = errors.New("new log failed to properly be stored")
 )
 
@@ -15,7 +15,7 @@ var (
 type LogStore interface {
 	// LastIndex will return the index of the last log entry that has
 	// been added to the log storage.
-	LastIndex() (int64, error)
+	LastIndex() int64
 
 	// GetLog will return the log found at the given index. An error will
 	// be returned if the index is out of bounds.
@@ -24,8 +24,8 @@ type LogStore interface {
 	// AllLogs retrieves every log entry in the store and returns the result.
 	AllLogs() ([]*Log, error)
 
-	// StoreLogs will append the slice of logs to the list of log entries.
-	StoreLogs(logs []*Log) error
+	// AppendLogs will add the slice of logs to the current list of log entries.
+	AppendLogs(logs []*Log) error
 
 	// DeleteRange will remove all log entries starting from the min index all
 	// the way to the max index (inclusive).
@@ -33,7 +33,7 @@ type LogStore interface {
 }
 
 type InMemLogStore struct {
-	mu sync.Mutex
+	mu   sync.Mutex
 	logs []*Log
 }
 
@@ -43,22 +43,22 @@ func NewMemLogStore() *InMemLogStore {
 	}
 }
 
-func (m *InMemLogStore) LastIndex() (int64, error) {
+func (m *InMemLogStore) LastIndex() int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return int64(len(m.logs) - 1), nil
+	return int64(len(m.logs) - 1)
 }
 
 func (m *InMemLogStore) GetLog(index int64) (*Log, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if i, _ := m.LastIndex(); i < index {
+	if i := m.LastIndex(); i < index {
 		return nil, ErrLogNotFound
 	}
 	return m.logs[index], nil
 }
 
-func (m *InMemLogStore) StoreLogs(logs []*Log) error {
+func (m *InMemLogStore) AppendLogs(logs []*Log) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logs = append(m.logs, logs...)
