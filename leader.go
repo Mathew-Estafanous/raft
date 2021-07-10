@@ -25,15 +25,22 @@ func (l *leader) getType() raftState {
 func (l *leader) runState() {
 	l.heartbeat.Reset(l.cluster.heartBeatTime)
 	l.indexMu.Lock()
+
+	lastIdx, err := l.logStore.LastIndex()
+	if err != nil {
+		l.logger.Println("Failed to get last index of leader")
+		return
+	}
+
 	for k := range l.cluster.Nodes {
 		// Initialize own matchIndex with the last index that has been
 		// added to own log.
 		if k == l.id {
-			l.matchIndex[k] = l.lastIndex
+			l.matchIndex[k] = lastIdx
 		} else {
 			l.matchIndex[k] = -1
 		}
-		l.nextIndex[k] = l.lastIndex + 1
+		l.nextIndex[k] = lastIdx + 1
 	}
 	l.indexMu.Unlock()
 
@@ -65,12 +72,15 @@ func (l *leader) runState() {
 
 			lt.log.Term = l.currentTerm
 			lt.log.Index = l.lastIndex + 1
+
+			if err := l.logStore.StoreLogs([]*Log{lt.log}); err != nil {
+				l.logger.Printf("Failed to store new log %v.", lt.log)
+				lt.respond(ErrFailedToStore)
+				break
+			}
+
 			// Add the logTask to a map of all the tasks currently being run.
 			l.tasks[lt.log.Index] = lt
-
-			l.logMu.Lock()
-			l.log = append(l.log, lt.log)
-			l.logMu.Unlock()
 
 			l.indexMu.Lock()
 			l.matchIndex[l.id] += 1
@@ -97,23 +107,32 @@ func (l *leader) runState() {
 }
 
 func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
-	l.logMu.Lock()
 	l.indexMu.Lock()
 	prevIndex := nextIdx - 1
 	var prevTerm uint64
 	if prevIndex <= -1 {
 		prevTerm = 0
 	} else {
-		prevTerm = l.log[prevIndex].Term
+		log, err := l.logStore.GetLog(prevIndex)
+		if err != nil {
+			l.logger.Printf("Failed to get log %v from log store", prevIndex)
+			return
+		}
+		prevTerm = log.Term
 	}
 
-	if !isHeartbeat || nextIdx <= l.lastIndex {
+	lastIdx, err := l.logStore.LastIndex()
+	if err != nil {
+		l.logger.Println("Failed to get last index of leader")
+		return
+	}
+	if !isHeartbeat || nextIdx <= lastIdx {
 		nextIdx++
 	}
-	// TODO: Use the matchIndex as the base instead of sending the entire log.
-	logs := l.log[:nextIdx]
 	l.indexMu.Unlock()
-	l.logMu.Unlock()
+	// TODO: Use the matchIndex as the base instead of sending the entire log.
+	logs, err := l.logStore.AllLogs()
+	logs = logs[:nextIdx]
 
 	l.mu.Lock()
 	req := &pb.AppendEntriesRequest{

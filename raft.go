@@ -57,7 +57,7 @@ type Cluster struct {
 	// should send out.
 	heartBeatTime time.Duration
 
-	// All the nodes within the raft Cluster. Key is an raft id.
+	// AllLogs the nodes within the raft Cluster. Key is an raft id.
 	Nodes  map[uint64]node
 	logger *log.Logger
 }
@@ -107,7 +107,7 @@ type Raft struct {
 	state    state
 
 	// Persistent state of the raft.
-	logMu       sync.Mutex
+	logStore    LogStore
 	log         []*Log
 	currentTerm uint64
 	votedFor    uint64
@@ -124,7 +124,7 @@ type Raft struct {
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
-func New(c *Cluster, id uint64, fsm FSM) (*Raft, error) {
+func New(c *Cluster, id uint64, fsm FSM, logStr LogStore) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
@@ -135,6 +135,7 @@ func New(c *Cluster, id uint64, fsm FSM) (*Raft, error) {
 		logger:      logger,
 		cluster:     c,
 		fsm:         fsm,
+		logStore:    logStr,
 		log:         make([]*Log, 0),
 		currentTerm: 0,
 		commitIndex: -1,
@@ -337,21 +338,36 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	}
 	r.mu.Unlock()
 
-	r.logMu.Lock()
-	defer r.logMu.Unlock()
+	var lastIdx int64
 	// validate that the PrevLogIndex is not at the starting default index value.
 	if req.PrevLogIndex != -1 && r.lastIndex != -1 {
 		var prevTerm uint64
-		if req.PrevLogIndex == r.lastIndex {
-			prevTerm = r.log[r.lastIndex].Term
+		lastIdx, err := r.logStore.LastIndex()
+		if err != nil {
+			r.logger.Println("Encountered an error when trying to get last index from logs.")
+			return resp
+		}
+		if req.PrevLogIndex == lastIdx {
+			prevLog, err := r.logStore.GetLog(lastIdx)
+			if err != nil {
+				r.logger.Printf("Unable to get log at previous index %v", lastIdx)
+				return resp
+			}
+			prevTerm = prevLog.Term
 		} else {
 			// If the last index is less than the leader's previous log index then it's guaranteed
 			// that the terms will not match. We can return a unsuccessful response in that case.
-			if r.lastIndex < req.PrevLogIndex {
-				r.logger.Printf("Request prev. index %v is greater then last index %v", req.PrevLogIndex, r.lastIndex)
+			if lastIdx < req.PrevLogIndex {
+				r.logger.Printf("Request prev. index %v is greater then last index %v", req.PrevLogIndex, lastIdx)
 				return resp
 			}
-			prevTerm = r.log[req.PrevLogIndex].Term
+
+			prevLog, err  := r.logStore.GetLog(req.PrevLogIndex)
+			if err != nil {
+				r.logger.Printf("Unable to get log at previous index %v", req.PrevLogIndex)
+				return resp
+			}
+			prevTerm = prevLog.Term
 		}
 
 		if prevTerm != req.PrevLogTerm {
@@ -369,12 +385,16 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 				break
 			}
 
-			logEntry := r.log[e.Index]
+			logEntry, err := r.logStore.GetLog(e.Index)
+			if err != nil {
+				r.logger.Printf("Failed to get log at index %v", e.Index)
+				return resp
+			}
+
 			// if the log entry term at the given index doesn't match with the entry's term
 			// we must remove all logs at the index and beyond and replace it with the new ones.
 			if e.Term != logEntry.Term {
-				r.log = r.log[logEntry.Index:]
-
+				r.logStore.DeleteRange(logEntry.Index+1, lastIdx)
 				newEntries = allEntries[i:]
 				break
 			}
@@ -382,12 +402,15 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 
 		// if newEntries is greater than 0 then there are new entries that we must add to the log.
 		if n := len(newEntries); n > 0 {
-			r.log = append(r.log, newEntries...)
-			r.logger.Printf("Updated Log: %v", r.log)
+			err := r.logStore.StoreLogs(newEntries)
+			if err != nil {
+				r.logger.Println("Failed to append new log entries to log store.")
+				return resp
+			}
 
-			lastEntry := newEntries[n-1]
-			r.lastIndex = lastEntry.Index
-			r.lastTerm = lastEntry.Term
+			if logs, err := r.logStore.AllLogs(); err == nil {
+				r.logger.Printf("Updated Log: %v", logs)
+			}
 		}
 	}
 
@@ -449,9 +472,15 @@ func (r *Raft) handleRPC(req interface{}) rpcResp {
 // will be applied will be from the lastApplied to the recent commit index.
 func (r *Raft) applyLogs() {
 	for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
-		fsmU := fsmUpdate{}
-		fsmU.cmd = r.log[i].Cmd
-		r.fsmUpdateCh <- fsmU
+		l, err := r.logStore.GetLog(i)
+		if err != nil {
+			r.logger.Printf("Failed to get log index %v to fsm.", i)
+			return
+		}
+
+		r.fsmUpdateCh <- fsmUpdate{
+			cmd: l.Cmd,
+		}
 	}
 	r.lastApplied = r.commitIndex
 }
