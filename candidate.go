@@ -17,11 +17,9 @@ func (c *candidate) getType() raftState {
 }
 
 func (c *candidate) runState() {
-	c.mu.Lock()
 	c.electionTimer.Reset(c.cluster.randElectTime())
 	c.setStableStore(keyCurrentTerm, c.fromStableStore(keyCurrentTerm)+1)
 	c.logger.Printf("Candidate started election for term %v.", c.fromStableStore(keyCurrentTerm))
-	c.mu.Unlock()
 
 	// Run election for candidate by sending request votes to other nodes.
 	c.sendVoteRequests()

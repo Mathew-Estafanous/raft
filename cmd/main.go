@@ -18,7 +18,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	wg.Add(3)
-	go makeAndRunKV(1, c, createMemStore(1),  &wg)
+	go makeAndRunKV(1, c, createMemStore(1), &wg)
 	go makeAndRunKV(2, c, createMemStore(2), &wg)
 	go makeAndRunKV(3, c, createMemStore(3), &wg)
 
@@ -56,18 +56,18 @@ func createMemStore(profile int) *raft.InMemStore {
 		logs = []*raft.Log{
 			{
 				Index: 0,
-				Term: 1,
-				Cmd: []byte("jaja ugly"),
+				Term:  1,
+				Cmd:   []byte("my friends"),
 			},
 			{
 				Index: 1,
-				Term: 1,
-				Cmd: []byte("jaja stupid"),
+				Term:  1,
+				Cmd:   []byte("my bro"),
 			},
 			{
 				Index: 2,
-				Term: 2,
-				Cmd: []byte("mat amazing"),
+				Term:  2,
+				Cmd:   []byte("mat amazing"),
 			},
 		}
 		term = 2
@@ -75,23 +75,23 @@ func createMemStore(profile int) *raft.InMemStore {
 		logs = []*raft.Log{
 			{
 				Index: 0,
-				Term: 1,
-				Cmd: []byte("jaja ugly"),
+				Term:  1,
+				Cmd:   []byte("my friends"),
 			},
 			{
 				Index: 1,
-				Term: 1,
-				Cmd: []byte("jaja stupid"),
+				Term:  1,
+				Cmd:   []byte("my bro"),
 			},
 			{
 				Index: 2,
-				Term: 2,
-				Cmd: []byte("mat amazing"),
+				Term:  2,
+				Cmd:   []byte("mat amazing"),
 			},
 			{
 				Index: 3,
-				Term: 2,
-				Cmd: []byte("hello world"),
+				Term:  2,
+				Cmd:   []byte("hello world"),
 			},
 		}
 		term = 2
@@ -99,8 +99,8 @@ func createMemStore(profile int) *raft.InMemStore {
 		logs = []*raft.Log{
 			{
 				Index: 0,
-				Term: 1,
-				Cmd: []byte("jaja ugly"),
+				Term:  1,
+				Cmd:   []byte("my friends"),
 			},
 		}
 		term = 1

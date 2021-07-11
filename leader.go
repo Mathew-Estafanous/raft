@@ -60,7 +60,6 @@ func (l *leader) runState() {
 			}
 			l.handleAppendResp(ae)
 		case lt := <-l.applyCh:
-			l.mu.Lock()
 			lt.log.Term = l.fromStableStore(keyCurrentTerm)
 			lt.log.Index = l.log.LastIndex() + 1
 
@@ -76,7 +75,6 @@ func (l *leader) runState() {
 			l.indexMu.Lock()
 			l.matchIndex[l.id] += 1
 			l.indexMu.Unlock()
-			l.mu.Unlock()
 
 			// resetting the heartbeat time since we are going to send append entries, which
 			// would make a heartbeat unnecessary.

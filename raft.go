@@ -293,12 +293,10 @@ func (r *Raft) setStableStore(key []byte, val uint64) {
 }
 
 func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
-	r.mu.Lock()
 	resp := &pb.VoteResponse{
 		Term:        r.fromStableStore(keyCurrentTerm),
 		VoteGranted: false,
 	}
-	r.mu.Unlock()
 
 	r.logger.Printf("Received a request vote from candidate %d for term: %d.", req.CandidateId, req.Term)
 	if req.Term < r.fromStableStore(keyCurrentTerm) {
@@ -307,9 +305,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	if req.Term > r.fromStableStore(keyCurrentTerm) {
-		r.mu.Lock()
 		r.setStableStore(keyCurrentTerm, req.Term)
-		r.mu.Unlock()
 		r.setState(Follower)
 
 		resp.Term = req.Term
@@ -329,9 +325,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	r.logger.Printf("[Vote Granted] To candidate %d for term %d", req.CandidateId, req.Term)
-	r.mu.Lock()
 	r.timer.Reset(r.cluster.randElectTime())
-	r.mu.Unlock()
 
 	r.setStableStore(keyVotedFor, req.CandidateId)
 	resp.VoteGranted = true
@@ -340,7 +334,6 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 
 func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	r.timer.Reset(r.cluster.randElectTime())
-	r.mu.Lock()
 	resp := &pb.AppendEntriesResponse{
 		Id:      r.id,
 		Term:    r.fromStableStore(keyCurrentTerm),
@@ -349,12 +342,10 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 
 	if req.Term < r.fromStableStore(keyCurrentTerm) {
 		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.fromStableStore(keyCurrentTerm))
-		r.mu.Unlock()
 		return resp
 	} else if req.Term > r.fromStableStore(keyCurrentTerm) {
 		r.setStableStore(keyCurrentTerm, req.Term)
 	}
-	r.mu.Unlock()
 	r.setState(Follower)
 
 	r.mu.Lock()
