@@ -111,8 +111,8 @@ type Raft struct {
 	state    state
 
 	// Persistent state of the raft.
-	log         LogStore
-	stable      StableStore
+	log    LogStore
+	stable StableStore
 
 	// Volatile state of the raft.
 	commitIndex int64
@@ -410,7 +410,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 			// if the log entry term at the given index doesn't match with the entry's term
 			// we must remove all logs at the index and beyond and replace it with the new ones.
 			if e.Term != logEntry.Term {
-				err = r.log.DeleteRange(logEntry.Index+1, lastIdx)
+				err = r.log.DeleteRange(logEntry.Index, lastIdx)
 				if err != nil {
 					r.logger.Printf("Failed to delete range %d - %d", logEntry.Index+1, lastIdx)
 					return resp

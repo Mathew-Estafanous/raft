@@ -140,7 +140,7 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 	if r.Term > l.fromStableStore(keyCurrentTerm) {
 		l.setState(Follower)
 		l.setStableStore(keyCurrentTerm, r.Term)
-		l.setStableStore(keyVotedFor,0)
+		l.setStableStore(keyVotedFor, 0)
 		return
 	}
 
@@ -171,7 +171,7 @@ func (l *leader) setCommitIndex(comIdx int64) {
 	for i := l.commitIndex + 1; i <= comIdx; i++ {
 		t, ok := l.tasks[i]
 		if !ok {
-			l.logger.Printf("Couldn't find a client task with index %v", i)
+			continue
 		}
 		t.respond(nil)
 		delete(l.tasks, i)

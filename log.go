@@ -20,7 +20,7 @@ type Log struct {
 }
 
 func (l Log) String() string {
-	return fmt.Sprintf("{%d, %v}", l.Term, string(l.Cmd))
+	return fmt.Sprintf("{%d}", l.Term)
 }
 
 type logTask struct {

@@ -18,17 +18,16 @@ func main() {
 	var wg sync.WaitGroup
 
 	wg.Add(3)
-	go makeAndRunKV(1, c, &wg)
-	go makeAndRunKV(2, c, &wg)
-	go makeAndRunKV(3, c, &wg)
+	go makeAndRunKV(1, c, createMemStore(1),  &wg)
+	go makeAndRunKV(2, c, createMemStore(2), &wg)
+	go makeAndRunKV(3, c, createMemStore(3), &wg)
 
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
 }
 
-func makeAndRunKV(id uint64, c *raft.Cluster, wg *sync.WaitGroup) {
+func makeAndRunKV(id uint64, c *raft.Cluster, mem *raft.InMemStore, wg *sync.WaitGroup) {
 	kv := NewStore()
-	mem := raft.NewMemStore()
 	r, err := raft.New(c, id, kv, mem, mem)
 	kv.r = r
 	if err != nil {
@@ -47,4 +46,67 @@ func makeAndRunKV(id uint64, c *raft.Cluster, wg *sync.WaitGroup) {
 		log.Println(err)
 	}
 	wg.Done()
+}
+
+func createMemStore(profile int) *raft.InMemStore {
+	mem := raft.NewMemStore()
+	var logs []*raft.Log
+	var term int
+	if profile == 1 {
+		logs = []*raft.Log{
+			{
+				Index: 0,
+				Term: 1,
+				Cmd: []byte("jaja ugly"),
+			},
+			{
+				Index: 1,
+				Term: 1,
+				Cmd: []byte("jaja stupid"),
+			},
+			{
+				Index: 2,
+				Term: 2,
+				Cmd: []byte("mat amazing"),
+			},
+		}
+		term = 2
+	} else if profile == 2 {
+		logs = []*raft.Log{
+			{
+				Index: 0,
+				Term: 1,
+				Cmd: []byte("jaja ugly"),
+			},
+			{
+				Index: 1,
+				Term: 1,
+				Cmd: []byte("jaja stupid"),
+			},
+			{
+				Index: 2,
+				Term: 2,
+				Cmd: []byte("mat amazing"),
+			},
+			{
+				Index: 3,
+				Term: 2,
+				Cmd: []byte("hello world"),
+			},
+		}
+		term = 2
+	} else {
+		logs = []*raft.Log{
+			{
+				Index: 0,
+				Term: 1,
+				Cmd: []byte("jaja ugly"),
+			},
+		}
+		term = 1
+		mem.Set([]byte("currentTerm"), []byte(strconv.Itoa(1)))
+	}
+	mem.AppendLogs(logs)
+	mem.Set([]byte("currentTerm"), []byte(strconv.Itoa(term)))
+	return mem
 }
