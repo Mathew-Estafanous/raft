@@ -19,8 +19,8 @@ func (c *candidate) getType() raftState {
 func (c *candidate) runState() {
 	c.mu.Lock()
 	c.electionTimer.Reset(c.cluster.randElectTime())
-	c.setCurrentTerm(c.getCurrentTerm()+1)
-	c.logger.Printf("Candidate started election for term %v.", c.getCurrentTerm())
+	c.setStableStore(keyCurrentTerm, c.fromStableStore(keyCurrentTerm)+1)
+	c.logger.Printf("Candidate started election for term %v.", c.fromStableStore(keyCurrentTerm))
 	c.mu.Unlock()
 
 	// Run election for candidate by sending request votes to other nodes.
@@ -29,7 +29,7 @@ func (c *candidate) runState() {
 	for c.getState().getType() == Candidate {
 		select {
 		case <-c.electionTimer.C:
-			c.logger.Printf("Election has failed for term %d", c.getCurrentTerm())
+			c.logger.Printf("Election has failed for term %d", c.fromStableStore(keyCurrentTerm))
 			return
 		case v := <-c.voteCh:
 			if v.error != nil {
@@ -52,9 +52,9 @@ func (c *candidate) runState() {
 func (c *candidate) sendVoteRequests() {
 	c.voteCh = make(chan rpcResp, len(c.cluster.Nodes))
 	c.votesNeeded = c.cluster.quorum() - 1
-	c.votedFor = c.id
+	c.setStableStore(keyVotedFor, c.id)
 	req := &pb.VoteRequest{
-		Term:         c.getCurrentTerm(),
+		Term:         c.fromStableStore(keyCurrentTerm),
 		CandidateId:  c.id,
 		LastLogIndex: c.log.LastIndex(),
 		LastLogTerm:  c.log.LastTerm(),
@@ -76,11 +76,9 @@ func (c *candidate) sendVoteRequests() {
 func (c *candidate) handleVoteResponse(vote *pb.VoteResponse) {
 	// If term of peer is greater then go back to follower
 	// and update current term to the peer's term.
-	if vote.Term > c.getCurrentTerm() {
+	if vote.Term > c.fromStableStore(keyCurrentTerm) {
 		c.logger.Println("Demoting since peer's term is greater than current term")
-		c.mu.Lock()
-		c.setCurrentTerm(vote.Term)
-		c.mu.Unlock()
+		c.setStableStore(keyCurrentTerm, vote.Term)
 		c.setState(Follower)
 		return
 	}

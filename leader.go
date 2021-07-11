@@ -61,7 +61,7 @@ func (l *leader) runState() {
 			l.handleAppendResp(ae)
 		case lt := <-l.applyCh:
 			l.mu.Lock()
-			lt.log.Term = l.getCurrentTerm()
+			lt.log.Term = l.fromStableStore(keyCurrentTerm)
 			lt.log.Index = l.log.LastIndex() + 1
 
 			if err := l.log.AppendLogs([]*Log{lt.log}); err != nil {
@@ -122,7 +122,7 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 
 	l.mu.Lock()
 	req := &pb.AppendEntriesRequest{
-		Term:         l.getCurrentTerm(),
+		Term:         l.fromStableStore(keyCurrentTerm),
 		LeaderId:     l.id,
 		LeaderCommit: l.commitIndex,
 		PrevLogIndex: prevIndex,
@@ -137,12 +137,10 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 
 func (l *leader) handleAppendResp(ae appendEntryResp) {
 	r := ae.resp.(*pb.AppendEntriesResponse)
-	if r.Term > l.getCurrentTerm() {
+	if r.Term > l.fromStableStore(keyCurrentTerm) {
 		l.setState(Follower)
-		l.mu.Lock()
-		l.setCurrentTerm(r.Term)
-		l.votedFor = 0
-		l.mu.Unlock()
+		l.setStableStore(keyCurrentTerm, r.Term)
+		l.setStableStore(keyVotedFor,0)
 		return
 	}
 

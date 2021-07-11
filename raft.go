@@ -113,7 +113,6 @@ type Raft struct {
 	// Persistent state of the raft.
 	log         LogStore
 	stable      StableStore
-	votedFor    uint64
 
 	// Volatile state of the raft.
 	commitIndex int64
@@ -140,7 +139,6 @@ func New(c *Cluster, id uint64, fsm FSM, logStr LogStore, stableStr StableStore)
 		stable:      stableStr,
 		commitIndex: -1,
 		lastApplied: -1,
-		votedFor:    0,
 		shutdownCh:  make(chan bool),
 		fsmUpdateCh: make(chan fsmUpdate),
 		applyCh:     make(chan *logTask),
@@ -266,10 +264,13 @@ func (r *Raft) getState() state {
 	return r.state
 }
 
-func (r *Raft) getCurrentTerm() uint64 {
-	val, err := r.stable.Get(keyCurrentTerm)
+// fromStableStore will fetch data related to the given key from the stable store.
+// Most importantly, it assumes all data being retrieved is required and all non-nil
+// errors are fatal.
+func (r *Raft) fromStableStore(key []byte) uint64 {
+	val, err := r.stable.Get(key)
 	if err != nil {
-		r.logger.Fatalln("Could not access current val from store.")
+		r.logger.Fatalln(err)
 	}
 
 	// if the returned byte slice is empty then we can assume a default of
@@ -280,43 +281,43 @@ func (r *Raft) getCurrentTerm() uint64 {
 
 	term, err := strconv.Atoi(string(val))
 	if err != nil {
-		r.logger.Fatalf("Failed to convert %v to an int.", val)
+		r.logger.Fatalln(err)
 	}
 	return uint64(term)
 }
 
-func (r *Raft) setCurrentTerm(term uint64) {
-	if err := r.stable.Set(keyCurrentTerm, []byte(strconv.Itoa(int(term)))); err != nil {
-		r.logger.Fatalln("Failed to set current term to %v", term)
+func (r *Raft) setStableStore(key []byte, val uint64) {
+	if err := r.stable.Set(key, []byte(strconv.Itoa(int(val)))); err != nil {
+		r.logger.Fatalln(err)
 	}
 }
 
 func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	r.mu.Lock()
 	resp := &pb.VoteResponse{
-		Term:        r.getCurrentTerm(),
+		Term:        r.fromStableStore(keyCurrentTerm),
 		VoteGranted: false,
 	}
 	r.mu.Unlock()
 
 	r.logger.Printf("Received a request vote from candidate %d for term: %d.", req.CandidateId, req.Term)
-	if req.Term < r.getCurrentTerm() {
-		r.logger.Printf("[Vote Denied] Candidate term %d | Current term is %d.", req.Term, r.getCurrentTerm())
+	if req.Term < r.fromStableStore(keyCurrentTerm) {
+		r.logger.Printf("[Vote Denied] Candidate term %d | Current term is %d.", req.Term, r.fromStableStore(keyCurrentTerm))
 		return resp
 	}
 
-	if req.Term > r.getCurrentTerm() {
+	if req.Term > r.fromStableStore(keyCurrentTerm) {
 		r.mu.Lock()
-		r.setCurrentTerm(req.Term)
+		r.setStableStore(keyCurrentTerm, req.Term)
 		r.mu.Unlock()
 		r.setState(Follower)
 
 		resp.Term = req.Term
-		r.votedFor = 0
+		r.setStableStore(keyVotedFor, 0)
 	}
 
-	if r.votedFor != 0 {
-		r.logger.Printf("[Vote Denied] Already granted vote for term %v.", r.getCurrentTerm())
+	if r.fromStableStore(keyVotedFor) != 0 {
+		r.logger.Printf("[Vote Denied] Already granted vote for term %v.", r.fromStableStore(keyCurrentTerm))
 		return resp
 	}
 
@@ -332,7 +333,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	r.timer.Reset(r.cluster.randElectTime())
 	r.mu.Unlock()
 
-	r.votedFor = req.CandidateId
+	r.setStableStore(keyVotedFor, req.CandidateId)
 	resp.VoteGranted = true
 	return resp
 }
@@ -342,23 +343,23 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	r.mu.Lock()
 	resp := &pb.AppendEntriesResponse{
 		Id:      r.id,
-		Term:    r.getCurrentTerm(),
+		Term:    r.fromStableStore(keyCurrentTerm),
 		Success: false,
 	}
 
-	if req.Term < r.getCurrentTerm() {
-		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.getCurrentTerm())
+	if req.Term < r.fromStableStore(keyCurrentTerm) {
+		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.fromStableStore(keyCurrentTerm))
 		r.mu.Unlock()
 		return resp
-	} else if req.Term > r.getCurrentTerm() {
-		r.setCurrentTerm(req.Term)
+	} else if req.Term > r.fromStableStore(keyCurrentTerm) {
+		r.setStableStore(keyCurrentTerm, req.Term)
 	}
 	r.mu.Unlock()
 	r.setState(Follower)
 
 	r.mu.Lock()
 	if r.leaderId != req.LeaderId {
-		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.getCurrentTerm())
+		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.fromStableStore(keyCurrentTerm))
 		r.leaderId = req.LeaderId
 	}
 	r.mu.Unlock()
