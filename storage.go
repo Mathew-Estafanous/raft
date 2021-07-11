@@ -35,69 +35,102 @@ type LogStore interface {
 	DeleteRange(min, max int64) error
 }
 
-type InMemLogStore struct {
-	mu   sync.Mutex
-	logs []*Log
-	lastIdx int64
-	lastTerm uint64
+// StableStore is used to provide persistence to vital information related
+// to the raft's state.
+type StableStore interface {
+	Set(key, value []byte) error
+
+	// Get returns the value related to that key. An empty slice is returned if
+	// there is no value with that key found.
+	Get(key []byte) ([]byte, error)
 }
 
-func NewMemLogStore() *InMemLogStore {
-	return &InMemLogStore{
-		logs: make([]*Log, 0),
-		lastIdx: -1,
+// InMemStore is an implementation of the StableStore and LogStore interface.
+// Since it is in-memory, all data is lost on shutdown.
+//
+// NOTE: This implementation is meant for testing and example use-cases and is NOT meant
+// to be used in any production environment. It is up to the user to create the wanted
+// persistence implementation.
+type InMemStore struct {
+	lMu      sync.Mutex
+	logs     []*Log
+	lastIdx  int64
+	lastTerm uint64
+
+	kvMu sync.Mutex
+	kv   map[string][]byte
+}
+
+func NewMemStore() *InMemStore {
+	return &InMemStore{
+		logs:     make([]*Log, 0),
+		lastIdx:  -1,
 		lastTerm: 0,
+		kv:       make(map[string][]byte),
 	}
 }
 
-func (m *InMemLogStore) LastIndex() int64 {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *InMemStore) LastIndex() int64 {
+	m.lMu.Lock()
+	defer m.lMu.Unlock()
 	return m.lastIdx
 }
 
-func (m *InMemLogStore) LastTerm() uint64 {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *InMemStore) LastTerm() uint64 {
+	m.lMu.Lock()
+	defer m.lMu.Unlock()
 	return m.lastTerm
 }
 
-func (m *InMemLogStore) GetLog(index int64) (*Log, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *InMemStore) GetLog(index int64) (*Log, error) {
+	m.lMu.Lock()
+	defer m.lMu.Unlock()
 	if i := m.lastIdx; i < index {
 		return nil, ErrLogNotFound
 	}
 	return m.logs[index], nil
 }
 
-func (m *InMemLogStore) AppendLogs(logs []*Log) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *InMemStore) AppendLogs(logs []*Log) error {
+	m.lMu.Lock()
+	defer m.lMu.Unlock()
 	m.logs = append(m.logs, logs...)
 	m.updateLastLog()
 	return nil
 }
 
-func (m *InMemLogStore) DeleteRange(min, max int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *InMemStore) DeleteRange(min, max int64) error {
+	m.lMu.Lock()
+	defer m.lMu.Unlock()
 	m.logs = append(m.logs[:min], m.logs[max+1:]...)
 	m.updateLastLog()
 	return nil
 }
 
-func (m *InMemLogStore) AllLogs() ([]*Log, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *InMemStore) AllLogs() ([]*Log, error) {
+	m.lMu.Lock()
+	defer m.lMu.Unlock()
 	return m.logs, nil
 }
 
-func (m *InMemLogStore) updateLastLog() {
+func (m *InMemStore) updateLastLog() {
 	if len(m.logs)-1 < 0 {
 		return
 	}
 
 	m.lastIdx = m.logs[len(m.logs)-1].Index
 	m.lastTerm = m.logs[len(m.logs)-1].Term
+}
+
+func (m *InMemStore) Set(key, value []byte) error {
+	m.kvMu.Lock()
+	defer m.kvMu.Unlock()
+	m.kv[string(key)] = value
+	return nil
+}
+
+func (m *InMemStore) Get(key []byte) ([]byte, error) {
+	m.kvMu.Lock()
+	defer m.kvMu.Unlock()
+	return m.kv[string(key)], nil
 }

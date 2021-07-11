@@ -28,7 +28,8 @@ func main() {
 
 func makeAndRunKV(id uint64, c *raft.Cluster, wg *sync.WaitGroup) {
 	kv := NewStore()
-	r, err := raft.New(c, id, kv, raft.NewMemLogStore())
+	mem := raft.NewMemStore()
+	r, err := raft.New(c, id, kv, mem, mem)
 	kv.r = r
 	if err != nil {
 		log.Fatalln(err)

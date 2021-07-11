@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -22,6 +23,9 @@ var (
 	// ErrNotLeader is thrown when a follower/candidate is given some operation
 	// that only a leader is permitted to execute.
 	ErrNotLeader = errors.New("this node is not a leader")
+
+	keyCurrentTerm = []byte("currentTerm")
+	keyVotedFor    = []byte("votedFor")
 )
 
 type raftState byte
@@ -107,9 +111,8 @@ type Raft struct {
 	state    state
 
 	// Persistent state of the raft.
-	logStore    LogStore
-	log         []*Log
-	currentTerm uint64
+	log         LogStore
+	stable      StableStore
 	votedFor    uint64
 
 	// Volatile state of the raft.
@@ -122,7 +125,7 @@ type Raft struct {
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
-func New(c *Cluster, id uint64, fsm FSM, logStr LogStore) (*Raft, error) {
+func New(c *Cluster, id uint64, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
@@ -133,9 +136,8 @@ func New(c *Cluster, id uint64, fsm FSM, logStr LogStore) (*Raft, error) {
 		logger:      logger,
 		cluster:     c,
 		fsm:         fsm,
-		logStore:    logStr,
-		log:         make([]*Log, 0),
-		currentTerm: 0,
+		log:         logStr,
+		stable:      stableStr,
 		commitIndex: -1,
 		lastApplied: -1,
 		votedFor:    0,
@@ -264,23 +266,48 @@ func (r *Raft) getState() state {
 	return r.state
 }
 
+func (r *Raft) getCurrentTerm() uint64 {
+	val, err := r.stable.Get(keyCurrentTerm)
+	if err != nil {
+		r.logger.Fatalln("Could not access current val from store.")
+	}
+
+	// if the returned byte slice is empty then we can assume a default of
+	// setting the term to 0.
+	if len(val) == 0 {
+		val = []byte("0")
+	}
+
+	term, err := strconv.Atoi(string(val))
+	if err != nil {
+		r.logger.Fatalf("Failed to convert %v to an int.", val)
+	}
+	return uint64(term)
+}
+
+func (r *Raft) setCurrentTerm(term uint64) {
+	if err := r.stable.Set(keyCurrentTerm, []byte(strconv.Itoa(int(term)))); err != nil {
+		r.logger.Fatalln("Failed to set current term to %v", term)
+	}
+}
+
 func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	r.mu.Lock()
 	resp := &pb.VoteResponse{
-		Term:        r.currentTerm,
+		Term:        r.getCurrentTerm(),
 		VoteGranted: false,
 	}
 	r.mu.Unlock()
 
 	r.logger.Printf("Received a request vote from candidate %d for term: %d.", req.CandidateId, req.Term)
-	if req.Term < r.currentTerm {
-		r.logger.Printf("[Vote Denied] Candidate term %d | Current term is %d.", req.Term, r.currentTerm)
+	if req.Term < r.getCurrentTerm() {
+		r.logger.Printf("[Vote Denied] Candidate term %d | Current term is %d.", req.Term, r.getCurrentTerm())
 		return resp
 	}
 
-	if req.Term > r.currentTerm {
+	if req.Term > r.getCurrentTerm() {
 		r.mu.Lock()
-		r.currentTerm = req.Term
+		r.setCurrentTerm(req.Term)
 		r.mu.Unlock()
 		r.setState(Follower)
 
@@ -289,12 +316,12 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	if r.votedFor != 0 {
-		r.logger.Printf("[Vote Denied] Already granted vote for term %v.", r.currentTerm)
+		r.logger.Printf("[Vote Denied] Already granted vote for term %v.", r.getCurrentTerm())
 		return resp
 	}
 
-	lastIdx := r.logStore.LastIndex()
-	lastTerm := r.logStore.LastTerm()
+	lastIdx := r.log.LastIndex()
+	lastTerm := r.log.LastTerm()
 	if lastIdx > req.LastLogIndex || (lastTerm == req.LastLogTerm && lastIdx > req.LastLogIndex) {
 		r.logger.Printf("[Vote Denied] Candidate's log term/index are not up to date.")
 		return resp
@@ -315,33 +342,33 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	r.mu.Lock()
 	resp := &pb.AppendEntriesResponse{
 		Id:      r.id,
-		Term:    r.currentTerm,
+		Term:    r.getCurrentTerm(),
 		Success: false,
 	}
 
-	if req.Term < r.currentTerm {
-		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.currentTerm)
+	if req.Term < r.getCurrentTerm() {
+		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.getCurrentTerm())
 		r.mu.Unlock()
 		return resp
-	} else if req.Term > r.currentTerm {
-		r.currentTerm = req.Term
+	} else if req.Term > r.getCurrentTerm() {
+		r.setCurrentTerm(req.Term)
 	}
 	r.mu.Unlock()
 	r.setState(Follower)
 
 	r.mu.Lock()
 	if r.leaderId != req.LeaderId {
-		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.currentTerm)
+		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.getCurrentTerm())
 		r.leaderId = req.LeaderId
 	}
 	r.mu.Unlock()
 
 	// validate that the PrevLogIndex is not at the starting default index value.
-	lastIdx := r.logStore.LastIndex()
+	lastIdx := r.log.LastIndex()
 	if req.PrevLogIndex != -1 && lastIdx != -1 {
 		var prevTerm uint64
 		if req.PrevLogIndex == lastIdx {
-			prevTerm = r.logStore.LastTerm()
+			prevTerm = r.log.LastTerm()
 		} else {
 			// If the last index is less than the leader's previous log index then it's guaranteed
 			// that the terms will not match. We can return a unsuccessful response in that case.
@@ -350,7 +377,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 				return resp
 			}
 
-			prevLog, err := r.logStore.GetLog(req.PrevLogIndex)
+			prevLog, err := r.log.GetLog(req.PrevLogIndex)
 			if err != nil {
 				r.logger.Printf("Unable to get log at previous index %v", req.PrevLogIndex)
 				return resp
@@ -373,7 +400,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 				break
 			}
 
-			logEntry, err := r.logStore.GetLog(e.Index)
+			logEntry, err := r.log.GetLog(e.Index)
 			if err != nil {
 				r.logger.Printf("Failed to get log at index %v", e.Index)
 				return resp
@@ -382,7 +409,11 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 			// if the log entry term at the given index doesn't match with the entry's term
 			// we must remove all logs at the index and beyond and replace it with the new ones.
 			if e.Term != logEntry.Term {
-				r.logStore.DeleteRange(logEntry.Index+1, lastIdx)
+				err = r.log.DeleteRange(logEntry.Index+1, lastIdx)
+				if err != nil {
+					r.logger.Printf("Failed to delete range %d - %d", logEntry.Index+1, lastIdx)
+					return resp
+				}
 				newEntries = allEntries[i:]
 				break
 			}
@@ -390,13 +421,13 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 
 		// if newEntries is greater than 0 then there are new entries that we must add to the log.
 		if n := len(newEntries); n > 0 {
-			err := r.logStore.AppendLogs(newEntries)
+			err := r.log.AppendLogs(newEntries)
 			if err != nil {
 				r.logger.Println("Failed to append new log entries to log store.")
 				return resp
 			}
 
-			if logs, err := r.logStore.AllLogs(); err == nil {
+			if logs, err := r.log.AllLogs(); err == nil {
 				r.logger.Printf("Updated Log: %v", logs)
 			}
 		}
@@ -406,7 +437,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	// Check if the leader has committed any new entries. If so, then
 	// peer can also commit those changes and push them to the state machine.
 	if req.LeaderCommit > r.commitIndex {
-		r.commitIndex = min(r.logStore.LastIndex(), req.LeaderCommit)
+		r.commitIndex = min(r.log.LastIndex(), req.LeaderCommit)
 		r.applyLogs()
 	}
 	r.mu.Unlock()
@@ -460,7 +491,7 @@ func (r *Raft) handleRPC(req interface{}) rpcResp {
 // will be applied will be from the lastApplied to the recent commit index.
 func (r *Raft) applyLogs() {
 	for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
-		l, err := r.logStore.GetLog(i)
+		l, err := r.log.GetLog(i)
 		if err != nil {
 			r.logger.Printf("Failed to get log index %v to fsm.", i)
 			return
