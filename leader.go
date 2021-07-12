@@ -110,13 +110,12 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 		nextIdx++
 	}
 	l.indexMu.Unlock()
-	// TODO: Use the matchIndex as the base instead of sending the entire log.
 	logs, err := l.log.AllLogs()
 	if err != nil {
 		l.logger.Printf("Failed to get all logs from store.")
 		return
 	}
-	logs = logs[:nextIdx]
+	logs = logs[l.matchIndex[n.ID]+1:nextIdx]
 
 	l.mu.Lock()
 	req := &pb.AppendEntriesRequest{
