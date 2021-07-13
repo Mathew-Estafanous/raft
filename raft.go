@@ -53,6 +53,7 @@ type state interface {
 	getType() raftState
 }
 
+// Options defines required constants that the raft will use while running.
 type Options struct {
 	// Range of possible timeouts for elections or for
 	// no heartbeats from the leader.
