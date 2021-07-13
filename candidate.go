@@ -17,7 +17,7 @@ func (c *candidate) getType() raftState {
 }
 
 func (c *candidate) runState() {
-	c.electionTimer.Reset(c.cluster.randElectTime())
+	c.electionTimer.Reset(c.randElectTime())
 	c.setStableStore(keyCurrentTerm, c.fromStableStore(keyCurrentTerm)+1)
 	c.logger.Printf("Candidate started election for term %v.", c.fromStableStore(keyCurrentTerm))
 

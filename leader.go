@@ -23,7 +23,7 @@ func (l *leader) getType() raftState {
 }
 
 func (l *leader) runState() {
-	l.heartbeat.Reset(l.cluster.heartBeatTime)
+	l.heartbeat.Reset(l.opts.HeartBeatTimout)
 	l.indexMu.Lock()
 	for k := range l.cluster.Nodes {
 		// Initialize own matchIndex with the last index that has been
@@ -53,7 +53,7 @@ func (l *leader) runState() {
 					go l.sendAppendReq(n, l.nextIndex[n.ID], true)
 				}
 			}
-			l.heartbeat.Reset(l.cluster.heartBeatTime)
+			l.heartbeat.Reset(l.opts.HeartBeatTimout)
 		case ae := <-l.appendEntryCh:
 			if ae.error != nil {
 				break
@@ -78,7 +78,7 @@ func (l *leader) runState() {
 
 			// resetting the heartbeat time since we are going to send append entries, which
 			// would make a heartbeat unnecessary.
-			l.heartbeat.Reset(l.cluster.heartBeatTime)
+			l.heartbeat.Reset(l.opts.HeartBeatTimout)
 
 			for _, n := range l.cluster.Nodes {
 				if n.ID != l.id {
@@ -115,7 +115,7 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 		l.logger.Printf("Failed to get all logs from store.")
 		return
 	}
-	logs = logs[l.matchIndex[n.ID]+1:nextIdx]
+	logs = logs[l.matchIndex[n.ID]+1 : nextIdx]
 
 	l.mu.Lock()
 	req := &pb.AppendEntriesRequest{

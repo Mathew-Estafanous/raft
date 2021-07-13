@@ -9,7 +9,7 @@ func (f *follower) getType() raftState {
 }
 
 func (f *follower) runState() {
-	f.timer.Reset(f.cluster.randElectTime())
+	f.timer.Reset(f.randElectTime())
 	for f.getState().getType() == Follower {
 		select {
 		case <-f.timer.C:

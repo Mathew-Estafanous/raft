@@ -24,6 +24,18 @@ var (
 	// that only a leader is permitted to execute.
 	ErrNotLeader = errors.New("this node is not a leader")
 
+	DefaultOpts = Options{
+		MinElectionTimeout: 150 * time.Millisecond,
+		MaxElectionTimout:  300 * time.Millisecond,
+		HeartBeatTimout:    100 * time.Millisecond,
+	}
+
+	SlowRaftOpts = Options{
+		MinElectionTimeout: 1 * time.Second,
+		MaxElectionTimout:  3 * time.Second,
+		HeartBeatTimout:    500 * time.Millisecond,
+	}
+
 	keyCurrentTerm = []byte("currentTerm")
 	keyVotedFor    = []byte("votedFor")
 )
@@ -41,6 +53,17 @@ type state interface {
 	getType() raftState
 }
 
+type Options struct {
+	// Range of possible timeouts for elections or for
+	// no heartbeats from the leader.
+	MinElectionTimeout time.Duration
+	MaxElectionTimout  time.Duration
+
+	// Set time between heart beats (append entries) that the leader
+	// should send out.
+	HeartBeatTimout time.Duration
+}
+
 type node struct {
 	// An ID that uniquely identifies the raft in the Cluster.
 	ID uint64
@@ -52,15 +75,6 @@ type node struct {
 // Cluster  keeps track of all other nodes and their addresses.
 // It also holds agreed upon constants such as heart beat time and election timeout.
 type Cluster struct {
-	// Range of possible timeouts for elections or for
-	// no heartbeats from the leader.
-	minTimeout time.Duration
-	maxTimeout time.Duration
-
-	// Set time between heart beats (append entries) that the leader
-	// should send out.
-	heartBeatTime time.Duration
-
 	// AllLogs the nodes within the raft Cluster. Key is an raft id.
 	Nodes  map[uint64]node
 	logger *log.Logger
@@ -68,18 +82,9 @@ type Cluster struct {
 
 func NewCluster() *Cluster {
 	return &Cluster{
-		minTimeout:    1 * time.Second,
-		maxTimeout:    3 * time.Second,
-		heartBeatTime: 500 * time.Millisecond,
-		Nodes:         make(map[uint64]node),
-		logger:        log.New(os.Stdout, "[Cluster]", log.LstdFlags),
+		Nodes:  make(map[uint64]node),
+		logger: log.New(os.Stdout, "[Cluster]", log.LstdFlags),
 	}
-}
-
-func (c *Cluster) randElectTime() time.Duration {
-	max := int64(c.maxTimeout)
-	min := int64(c.minTimeout)
-	return time.Duration(rand.Int63n(max-min) + min)
 }
 
 func (c *Cluster) addNode(n node) error {
@@ -105,6 +110,7 @@ type Raft struct {
 
 	mu      sync.Mutex
 	cluster *Cluster
+	opts    Options
 	fsm     FSM
 
 	leaderId uint64
@@ -124,7 +130,7 @@ type Raft struct {
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
-func New(c *Cluster, id uint64, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
+func New(c *Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
@@ -134,6 +140,7 @@ func New(c *Cluster, id uint64, fsm FSM, logStr LogStore, stableStr StableStore)
 		timer:       time.NewTimer(1 * time.Hour),
 		logger:      logger,
 		cluster:     c,
+		opts:        opts,
 		fsm:         fsm,
 		log:         logStr,
 		stable:      stableStr,
@@ -264,6 +271,12 @@ func (r *Raft) getState() state {
 	return r.state
 }
 
+func (r *Raft) randElectTime() time.Duration {
+	max := int64(r.opts.MaxElectionTimout)
+	min := int64(r.opts.MinElectionTimeout)
+	return time.Duration(rand.Int63n(max-min) + min)
+}
+
 // fromStableStore will fetch data related to the given key from the stable store.
 // Most importantly, it assumes all data being retrieved is required and all non-nil
 // errors are fatal.
@@ -325,7 +338,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	r.logger.Printf("[Vote Granted] To candidate %d for term %d", req.CandidateId, req.Term)
-	r.timer.Reset(r.cluster.randElectTime())
+	r.timer.Reset(r.randElectTime())
 
 	r.setStableStore(keyVotedFor, req.CandidateId)
 	resp.VoteGranted = true
@@ -333,7 +346,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 }
 
 func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
-	r.timer.Reset(r.cluster.randElectTime())
+	r.timer.Reset(r.randElectTime())
 	resp := &pb.AppendEntriesResponse{
 		Id:      r.id,
 		Term:    r.fromStableStore(keyCurrentTerm),
