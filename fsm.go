@@ -11,7 +11,7 @@ type FSM interface {
 func (r *Raft) runFSM() {
 	for {
 		select {
-		case t := <-r.fsmUpdateCh:
+		case t := <-r.fsmCh:
 			err := r.fsm.Apply(t.cmd)
 			if err != nil {
 				r.logger.Printf("[FSM ERROR] Failed to properly apply cmd %v.", t.cmd)

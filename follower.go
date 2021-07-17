@@ -19,6 +19,8 @@ func (f *follower) runState() {
 			return
 		case t := <-f.applyCh:
 			t.respond(ErrNotLeader)
+		case <-f.snapTimer.C:
+			f.snapTimer.Reset(f.opts.SnapshotTimer)
 		case <-f.shutdownCh:
 			return
 		}

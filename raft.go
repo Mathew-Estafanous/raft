@@ -28,12 +28,16 @@ var (
 		MinElectionTimeout: 150 * time.Millisecond,
 		MaxElectionTimout:  300 * time.Millisecond,
 		HeartBeatTimout:    100 * time.Millisecond,
+		SnapshotTimer:      1 * time.Second,
+		LogThreshold:       200,
 	}
 
 	SlowRaftOpts = Options{
 		MinElectionTimeout: 1 * time.Second,
 		MaxElectionTimout:  3 * time.Second,
 		HeartBeatTimout:    500 * time.Millisecond,
+		SnapshotTimer:      8 * time.Second,
+		LogThreshold:       10,
 	}
 
 	keyCurrentTerm = []byte("currentTerm")
@@ -63,6 +67,15 @@ type Options struct {
 	// Set time between heart beats (append entries) that the leader
 	// should send out.
 	HeartBeatTimout time.Duration
+
+	// SnapshotTimer is the period of time between the raft's attempts at making a
+	// snapshot of the current state of the FSM. Although a snapshot is attempted periodically
+	// it is not guaranteed that a snapshot will be completed unless the LogThreshold is met.
+	SnapshotTimer time.Duration
+
+	// LogThreshold represents the total number of log entries that should be reached
+	// before log compaction (snapshot) is triggered.
+	LogThreshold uint64
 }
 
 type node struct {
@@ -118,9 +131,10 @@ func (c *Cluster) quorum() int {
 // of the consensus algorithm such as keeping track of leaders, replicated logs and
 // other important state.
 type Raft struct {
-	id     uint64
-	timer  *time.Timer
-	logger *log.Logger
+	id        uint64
+	timer     *time.Timer
+	snapTimer *time.Timer
+	logger    *log.Logger
 
 	mu      sync.Mutex
 	cluster *Cluster
@@ -138,9 +152,9 @@ type Raft struct {
 	commitIndex int64
 	lastApplied int64
 
-	shutdownCh  chan bool
-	fsmUpdateCh chan fsmUpdate
-	applyCh     chan *logTask
+	shutdownCh chan bool
+	fsmCh      chan fsmUpdate
+	applyCh    chan *logTask
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
@@ -158,6 +172,7 @@ func New(c *Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableSt
 	r := &Raft{
 		id:          id,
 		timer:       time.NewTimer(1 * time.Hour),
+		snapTimer:   time.NewTimer(opts.SnapshotTimer),
 		logger:      logger,
 		cluster:     c,
 		opts:        opts,
@@ -167,7 +182,7 @@ func New(c *Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableSt
 		commitIndex: -1,
 		lastApplied: -1,
 		shutdownCh:  make(chan bool),
-		fsmUpdateCh: make(chan fsmUpdate),
+		fsmCh:       make(chan fsmUpdate),
 		applyCh:     make(chan *logTask),
 	}
 	r.state = &follower{Raft: r}
@@ -443,8 +458,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 
 		// if newEntries is greater than 0 then there are new entries that we must add to the log.
 		if n := len(newEntries); n > 0 {
-			err := r.log.AppendLogs(newEntries)
-			if err != nil {
+			if err := r.log.AppendLogs(newEntries); err != nil {
 				r.logger.Println("Failed to append new log entries to log store.")
 				return resp
 			}
@@ -519,9 +533,7 @@ func (r *Raft) applyLogs() {
 			return
 		}
 
-		r.fsmUpdateCh <- fsmUpdate{
-			cmd: l.Cmd,
-		}
+		r.fsmCh <- fsmUpdate{cmd: l.Cmd}
 	}
 	r.lastApplied = r.commitIndex
 }

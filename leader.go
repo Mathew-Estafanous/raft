@@ -85,6 +85,8 @@ func (l *leader) runState() {
 					go l.sendAppendReq(n, l.nextIndex[n.ID], false)
 				}
 			}
+		case <-l.snapTimer.C:
+			l.snapTimer.Reset(l.opts.SnapshotTimer)
 		case <-l.shutdownCh:
 			return
 		}
