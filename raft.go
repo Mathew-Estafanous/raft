@@ -76,6 +76,7 @@ type node struct {
 // Cluster  keeps track of all other nodes and their addresses.
 // It also holds agreed upon constants such as heart beat time and election timeout.
 type Cluster struct {
+	mu sync.Mutex
 	// AllLogs the nodes within the raft Cluster. Key is an raft id.
 	Nodes  map[uint64]node
 	logger *log.Logger
@@ -89,11 +90,23 @@ func NewCluster() *Cluster {
 }
 
 func (c *Cluster) addNode(n node) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if _, ok := c.Nodes[n.ID]; ok {
 		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
 	}
 	c.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
 	c.Nodes[n.ID] = n
+	return nil
+}
+
+func (c Cluster) change(id uint64, n node) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.Nodes[id]; !ok {
+		return fmt.Errorf(" node with ID %v was not found", id)
+	}
+	c.Nodes[id] = n
 	return nil
 }
 
@@ -135,6 +148,12 @@ func New(c *Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableSt
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
+	n := node{ID: id}
+	err := c.addNode(n)
+	if err != nil {
+		return nil, err
+	}
+
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
 	r := &Raft{
 		id:          id,
@@ -176,10 +195,7 @@ func (r *Raft) Serve(l net.Listener) error {
 		ID:   r.id,
 		Addr: l.Addr().String(),
 	}
-	err := r.cluster.addNode(n)
-	if err != nil {
-		return err
-	}
+	r.cluster.change(r.id, n)
 
 	s := newServer(r, l)
 	defer s.shutdown()
