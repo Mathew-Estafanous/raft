@@ -17,9 +17,7 @@ func (r *Raft) runFSM() {
 		switch t := t.(type) {
 		case *fsmUpdate:
 			err := r.fsm.Apply(t.cmd)
-			if err != nil {
-				r.logger.Printf("[FSM ERROR] Failed to properly apply cmd %v.", t.cmd)
-			}
+			t.respond(err)
 		case *fsmSnapshot:
 			state, err := r.fsm.Snapshot()
 			t.state = state
@@ -29,11 +27,8 @@ func (r *Raft) runFSM() {
 }
 
 type fsmUpdate struct {
+	errorTask
 	cmd []byte
-}
-
-func (f *fsmUpdate) Error() error {
-	return nil
 }
 
 type fsmSnapshot struct {

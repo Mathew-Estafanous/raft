@@ -244,9 +244,7 @@ func (r *Raft) Apply(cmd []byte) Task {
 		log: &Log{
 			Cmd: cmd,
 		},
-		errorTask: errorTask{
-			errCh: make(chan error),
-		},
+		errorTask: errorTask{errCh: make(chan error)},
 	}
 
 	select {
@@ -535,7 +533,14 @@ func (r *Raft) applyLogs() {
 			return
 		}
 
-		r.fsmCh <- &fsmUpdate{cmd: l.Cmd}
+		updateTsk := &fsmUpdate{
+			cmd: l.Cmd,
+			errorTask: errorTask{errCh: make(chan error)},
+		}
+		r.fsmCh <- updateTsk
+		if updateTsk.Error() != nil {
+			r.logger.Fatalln("Could not successfully apply log entry to FSM")
+		}
 	}
 	r.lastApplied = r.commitIndex
 }
@@ -554,9 +559,7 @@ func (r *Raft) onSnapshot() {
 	}
 
 	snapTask := &fsmSnapshot{
-		errorTask: errorTask{
-			errCh: make(chan error),
-		},
+		errorTask: errorTask{errCh: make(chan error)},
 	}
 	r.fsmCh <- snapTask
 	if snapTask.Error() != nil {

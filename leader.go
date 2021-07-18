@@ -157,8 +157,10 @@ func (l *leader) handleAppendResp(ae appendEntryResp) {
 	for N := l.log.LastIndex(); N > l.commitIndex; N-- {
 		if yes := l.majorityMatch(N); yes {
 			l.setCommitIndex(N)
+			l.mu.Lock()
 			// apply the new committed logs to the FSM.
 			l.applyLogs()
+			l.mu.Unlock()
 			break
 		}
 	}
