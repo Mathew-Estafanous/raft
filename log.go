@@ -24,33 +24,8 @@ func (l Log) String() string {
 }
 
 type logTask struct {
+	errorTask
 	log *Log
-
-	errCh chan error
-	err   error
-}
-
-func (l *logTask) respond(err error) {
-	if l.errCh == nil {
-		return
-	}
-
-	if l.err != nil {
-		return
-	}
-
-	l.errCh <- err
-	close(l.errCh)
-}
-
-func (l *logTask) Error() error {
-	// If an error has already been received previously then we can
-	// just return that error.
-	if l.err != nil {
-		return l.err
-	}
-	l.err = <-l.errCh
-	return l.err
 }
 
 func logsToEntries(logs []*Log) []*pb.Entry {

@@ -86,7 +86,7 @@ func (l *leader) runState() {
 				}
 			}
 		case <-l.snapTimer.C:
-			l.snapTimer.Reset(l.opts.SnapshotTimer)
+			l.onSnapshot()
 		case <-l.shutdownCh:
 			return
 		}

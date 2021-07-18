@@ -37,7 +37,7 @@ var (
 		MaxElectionTimout:  3 * time.Second,
 		HeartBeatTimout:    500 * time.Millisecond,
 		SnapshotTimer:      8 * time.Second,
-		LogThreshold:       10,
+		LogThreshold:       5,
 	}
 
 	keyCurrentTerm = []byte("currentTerm")
@@ -153,7 +153,7 @@ type Raft struct {
 	lastApplied int64
 
 	shutdownCh chan bool
-	fsmCh      chan fsmUpdate
+	fsmCh      chan Task
 	applyCh    chan *logTask
 }
 
@@ -182,8 +182,8 @@ func New(c *Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableSt
 		commitIndex: -1,
 		lastApplied: -1,
 		shutdownCh:  make(chan bool),
-		fsmCh:       make(chan fsmUpdate),
-		applyCh:     make(chan *logTask),
+		fsmCh:       make(chan Task, 5),
+		applyCh:     make(chan *logTask, 5),
 	}
 	r.state = &follower{Raft: r}
 	return r, nil
@@ -244,7 +244,9 @@ func (r *Raft) Apply(cmd []byte) Task {
 		log: &Log{
 			Cmd: cmd,
 		},
-		errCh: make(chan error),
+		errorTask: errorTask{
+			errCh: make(chan error),
+		},
 	}
 
 	select {
@@ -533,7 +535,34 @@ func (r *Raft) applyLogs() {
 			return
 		}
 
-		r.fsmCh <- fsmUpdate{cmd: l.Cmd}
+		r.fsmCh <- &fsmUpdate{cmd: l.Cmd}
 	}
 	r.lastApplied = r.commitIndex
+}
+
+func (r *Raft) onSnapshot() {
+	r.snapTimer.Reset(r.opts.SnapshotTimer)
+	logs, err := r.log.AllLogs()
+	if err != nil {
+		r.logger.Println("Failed to get all logs from persistence.")
+		return
+	}
+
+	// don't make a snapshot if the length of the logs is below the set log threshold.
+	if len(logs) < int(r.opts.LogThreshold) {
+		return
+	}
+
+	snapTask := &fsmSnapshot{
+		errorTask: errorTask{
+			errCh: make(chan error),
+		},
+	}
+	r.fsmCh <- snapTask
+	if snapTask.Error() != nil {
+		r.logger.Println("Failed to create a snapshot of the FSM.")
+		return
+	}
+
+	// TODO: Take FSM snapshot and update log accordingly.
 }

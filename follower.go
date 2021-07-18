@@ -20,7 +20,7 @@ func (f *follower) runState() {
 		case t := <-f.applyCh:
 			t.respond(ErrNotLeader)
 		case <-f.snapTimer.C:
-			f.snapTimer.Reset(f.opts.SnapshotTimer)
+			f.onSnapshot()
 		case <-f.shutdownCh:
 			return
 		}

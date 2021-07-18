@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"github.com/Mathew-Estafanous/raft"
@@ -28,6 +29,15 @@ func (k *kvStore) Apply(data []byte) error {
 
 	k.data[dataConv[0]] = dataConv[1]
 	return nil
+}
+
+func (k *kvStore) Snapshot() ([]byte, error) {
+	var buf bytes.Buffer
+	en := gob.NewEncoder(&buf)
+	if err := en.Encode(k.data); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (k *kvStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
