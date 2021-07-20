@@ -113,7 +113,7 @@ func (c *Cluster) addNode(n node) error {
 	return nil
 }
 
-func (c Cluster) change(id uint64, n node) error {
+func (c *Cluster) change(id uint64, n node) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, ok := c.Nodes[id]; !ok {
@@ -210,7 +210,9 @@ func (r *Raft) Serve(l net.Listener) error {
 		ID:   r.id,
 		Addr: l.Addr().String(),
 	}
-	r.cluster.change(r.id, n)
+	if err := r.cluster.change(r.id, n); err != nil {
+		return err
+	}
 
 	s := newServer(r, l)
 	defer s.shutdown()

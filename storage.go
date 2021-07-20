@@ -2,6 +2,7 @@ package raft
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -52,7 +53,7 @@ type StableStore interface {
 // to be used in any production environment. It is up to the user to create the wanted
 // persistence implementation.
 type InMemStore struct {
-	lMu      sync.Mutex
+	mu       sync.Mutex
 	logs     []*Log
 	lastIdx  int64
 	lastTerm uint64
@@ -71,45 +72,56 @@ func NewMemStore() *InMemStore {
 }
 
 func (m *InMemStore) LastIndex() int64 {
-	m.lMu.Lock()
-	defer m.lMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.lastIdx
 }
 
 func (m *InMemStore) LastTerm() uint64 {
-	m.lMu.Lock()
-	defer m.lMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.lastTerm
 }
 
 func (m *InMemStore) GetLog(index int64) (*Log, error) {
-	m.lMu.Lock()
-	defer m.lMu.Unlock()
-	if i := m.lastIdx; i < index {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.lastIdx < index {
 		return nil, ErrLogNotFound
 	}
-	return m.logs[index], nil
+
+	minIdx := m.logs[0].Index
+	if index < minIdx {
+		return nil, fmt.Errorf("index %v is below the minimum index %v", index, minIdx)
+	}
+	return m.logs[index-minIdx], nil
 }
 
 func (m *InMemStore) AppendLogs(logs []*Log) error {
-	m.lMu.Lock()
-	defer m.lMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.logs = append(m.logs, logs...)
 	m.updateLastLog()
 	return nil
 }
 
 func (m *InMemStore) DeleteRange(min, max int64) error {
-	m.lMu.Lock()
-	defer m.lMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	minIdx := m.logs[0].Index
+	if min < minIdx {
+		return fmt.Errorf("min %v cannot be less than the current minimum index %v", min, minIdx)
+	}
+	min -= minIdx
+	max -= minIdx
 	m.logs = append(m.logs[:min], m.logs[max+1:]...)
 	m.updateLastLog()
 	return nil
 }
 
 func (m *InMemStore) AllLogs() ([]*Log, error) {
-	m.lMu.Lock()
-	defer m.lMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.logs, nil
 }
 
