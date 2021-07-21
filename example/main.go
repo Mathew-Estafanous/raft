@@ -1,7 +1,7 @@
 // This is meant as a very simple example of how this raft implementation can be
 // used to create a distributed KV store database.
 //
-// The code here is not meant to be thoroughly tested or used in any production
+// The code here is not meant to be used in any serious production
 // environment and just showcases the capabilities of this raft library.
 package main
 
