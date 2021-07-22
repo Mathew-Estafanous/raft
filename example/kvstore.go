@@ -40,6 +40,16 @@ func (k *kvStore) Snapshot() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func (k *kvStore) Restore(cmd []byte) error {
+	dec := gob.NewDecoder(bytes.NewBuffer(cmd))
+	state := make(map[string]string)
+	if err := dec.Decode(&state); err != nil {
+		return err
+	}
+	k.data = state
+	return nil
+}
+
 func (k *kvStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	paths := strings.Split(r.URL.Path, "/")
 	w.Header().Set("Content-Type", "text/plain")

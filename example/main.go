@@ -55,16 +55,19 @@ func createMemStore(profile int) *raft.InMemStore {
 	if profile == 1 {
 		logs = []*raft.Log{
 			{
+				Type: raft.Entry,
 				Index: 0,
 				Term:  1,
 				Cmd:   []byte("my friends"),
 			},
 			{
+				Type: raft.Entry,
 				Index: 1,
 				Term:  1,
 				Cmd:   []byte("my bro"),
 			},
 			{
+				Type: raft.Entry,
 				Index: 2,
 				Term:  2,
 				Cmd:   []byte("mat amazing"),
@@ -74,21 +77,25 @@ func createMemStore(profile int) *raft.InMemStore {
 	} else if profile == 2 {
 		logs = []*raft.Log{
 			{
+				Type: raft.Entry,
 				Index: 0,
 				Term:  1,
 				Cmd:   []byte("my friends"),
 			},
 			{
+				Type: raft.Entry,
 				Index: 1,
 				Term:  1,
 				Cmd:   []byte("my bro"),
 			},
 			{
+				Type: raft.Entry,
 				Index: 2,
 				Term:  2,
 				Cmd:   []byte("mat amazing"),
 			},
 			{
+				Type: raft.Entry,
 				Index: 3,
 				Term:  2,
 				Cmd:   []byte("hello world"),
@@ -98,6 +105,7 @@ func createMemStore(profile int) *raft.InMemStore {
 	} else {
 		logs = []*raft.Log{
 			{
+				Type: raft.Entry,
 				Index: 0,
 				Term:  1,
 				Cmd:   []byte("my friends"),

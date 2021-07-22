@@ -244,6 +244,7 @@ func (r *Raft) Shutdown() {
 func (r *Raft) Apply(cmd []byte) Task {
 	logT := &logTask{
 		log: &Log{
+			Type: Entry,
 			Cmd: cmd,
 		},
 		errorTask: errorTask{errCh: make(chan error)},
@@ -340,6 +341,7 @@ func (r *Raft) setStableStore(key []byte, val uint64) {
 }
 
 func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
+	r.timer.Reset(r.randElectTime())
 	resp := &pb.VoteResponse{
 		Term:        r.fromStableStore(keyCurrentTerm),
 		VoteGranted: false,
@@ -372,7 +374,6 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	}
 
 	r.logger.Printf("[Vote Granted] To candidate %d for term %d", req.CandidateId, req.Term)
-	r.timer.Reset(r.randElectTime())
 
 	r.setStableStore(keyVotedFor, req.CandidateId)
 	resp.VoteGranted = true
@@ -535,13 +536,24 @@ func (r *Raft) applyLogs() {
 			return
 		}
 
-		updateTsk := &fsmUpdate{
-			cmd:       l.Cmd,
-			errorTask: errorTask{errCh: make(chan error)},
-		}
-		r.fsmCh <- updateTsk
-		if updateTsk.Error() != nil {
-			r.logger.Fatalln("Could not successfully apply log entry to FSM")
+		if l.Type == Snapshot {
+			restore := &fsmRestore{
+				cmd: l.Cmd,
+				errorTask: errorTask{errCh: make(chan error)},
+			}
+			r.fsmCh <- restore
+			if restore.Error() != nil {
+				r.logger.Fatalln("Could not successfully restore log snapshot to FSM")
+			}
+		} else if l.Type == Entry {
+			update := &fsmUpdate{
+				cmd:       l.Cmd,
+				errorTask: errorTask{errCh: make(chan error)},
+			}
+			r.fsmCh <- update
+			if update.Error() != nil {
+				r.logger.Fatalln("Could not successfully apply log entry to FSM")
+			}
 		}
 	}
 	r.lastApplied = r.commitIndex
@@ -568,7 +580,7 @@ func (r *Raft) onSnapshot() {
 		r.logger.Println("Failed to create a snapshot of the FSM.")
 		return
 	}
-	
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err = r.log.DeleteRange(logs[0].Index, logs[len(logs)-1].Index); err != nil {
@@ -576,6 +588,7 @@ func (r *Raft) onSnapshot() {
 	}
 
 	snapLog := &Log{
+		Type:  Snapshot,
 		Index: r.lastApplied,
 		Term:  r.fromStableStore(keyCurrentTerm),
 		Cmd:   snapTask.state,

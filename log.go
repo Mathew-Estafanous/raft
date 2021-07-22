@@ -9,7 +9,7 @@ type logType byte
 
 var (
 	Entry    logType = 'E'
-	Snapshot         = 'S'
+	Snapshot logType = 'S'
 )
 
 // Log entries represent commands that alter the state of the FSM.
@@ -18,6 +18,7 @@ var (
 type Log struct {
 	// Type is the kind of log that this represents.
 	Type logType
+
 	// Index represents the index in the list of log entries.
 	Index int64
 

@@ -10,6 +10,9 @@ type FSM interface {
 	// Snapshot will create a byte slice representation of all the required data
 	// to represent the current state of the machine.
 	Snapshot() ([]byte, error)
+
+	// Restore the entire state of the FSM to a starting state.
+	Restore(cmd []byte) error
 }
 
 func (r *Raft) runFSM() {
@@ -21,6 +24,9 @@ func (r *Raft) runFSM() {
 		case *fsmSnapshot:
 			state, err := r.fsm.Snapshot()
 			t.state = state
+			t.respond(err)
+		case *fsmRestore:
+			err := r.fsm.Restore(t.cmd)
 			t.respond(err)
 		}
 	}
@@ -34,6 +40,11 @@ type fsmUpdate struct {
 type fsmSnapshot struct {
 	errorTask
 	state []byte
+}
+
+type fsmRestore struct {
+	errorTask
+	cmd []byte
 }
 
 // Task represents an operation that has been sent to the raft Cluster. Every task
