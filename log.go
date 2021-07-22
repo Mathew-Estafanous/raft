@@ -5,10 +5,19 @@ import (
 	"github.com/Mathew-Estafanous/raft/pb"
 )
 
+type logType byte
+
+var (
+	Entry    logType = 'E'
+	Snapshot         = 'S'
+)
+
 // Log entries represent commands that alter the state of the FSM.
 // These entries are replicated across a majority of raft instances
 // before being considered as committed.
 type Log struct {
+	// Type is the kind of log that this represents.
+	Type logType
 	// Index represents the index in the list of log entries.
 	Index int64
 

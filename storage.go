@@ -122,7 +122,9 @@ func (m *InMemStore) DeleteRange(min, max int64) error {
 func (m *InMemStore) AllLogs() ([]*Log, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.logs, nil
+	copyLog := make([]*Log, len(m.logs))
+	copy(copyLog, m.logs)
+	return copyLog, nil
 }
 
 func (m *InMemStore) updateLastLog() {

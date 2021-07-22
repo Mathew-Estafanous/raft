@@ -117,7 +117,10 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 		l.logger.Printf("Failed to get all logs from store.")
 		return
 	}
-	logs = logs[l.matchIndex[n.ID]+1 : nextIdx]
+	// must offset to 0th index of the log slice. Use the index of the 0th log
+	// as the base of the offset.
+	idxOffset := logs[0].Index
+	logs = logs[(l.matchIndex[n.ID]+1)-idxOffset : nextIdx-idxOffset]
 
 	l.mu.Lock()
 	req := &pb.AppendEntriesRequest{

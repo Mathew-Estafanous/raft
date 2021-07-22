@@ -536,7 +536,7 @@ func (r *Raft) applyLogs() {
 		}
 
 		updateTsk := &fsmUpdate{
-			cmd: l.Cmd,
+			cmd:       l.Cmd,
 			errorTask: errorTask{errCh: make(chan error)},
 		}
 		r.fsmCh <- updateTsk
@@ -568,6 +568,28 @@ func (r *Raft) onSnapshot() {
 		r.logger.Println("Failed to create a snapshot of the FSM.")
 		return
 	}
+	
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err = r.log.DeleteRange(logs[0].Index, logs[len(logs)-1].Index); err != nil {
+		r.logger.Fatalln(err)
+	}
 
-	// TODO: Take FSM snapshot and update log accordingly.
+	snapLog := &Log{
+		Index: r.lastApplied,
+		Term:  r.fromStableStore(keyCurrentTerm),
+		Cmd:   snapTask.state,
+	}
+	if err = r.log.AppendLogs([]*Log{snapLog}); err != nil {
+		r.logger.Fatalln(err)
+	}
+
+	idx := r.lastApplied - logs[0].Index
+	if err = r.log.AppendLogs(logs[idx+1:]); err != nil {
+		r.logger.Fatalln(err)
+	}
+
+	if logs, err := r.log.AllLogs(); err == nil {
+		r.logger.Printf("Snapshot Logs: %v", logs)
+	}
 }
