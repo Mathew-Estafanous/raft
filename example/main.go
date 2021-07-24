@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 )
 
 func main() {
@@ -21,6 +22,9 @@ func main() {
 	go makeAndRunKV(1, c, createMemStore(1), &wg)
 	go makeAndRunKV(2, c, createMemStore(2), &wg)
 	go makeAndRunKV(3, c, createMemStore(3), &wg)
+
+	time.Sleep(45 * time.Second)
+	go makeAndRunKV(4, c, createMemStore(4), &wg)
 
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
@@ -102,7 +106,7 @@ func createMemStore(profile int) *raft.InMemStore {
 			},
 		}
 		term = 2
-	} else {
+	} else if profile == 3 {
 		logs = []*raft.Log{
 			{
 				Type: raft.Entry,
@@ -112,7 +116,6 @@ func createMemStore(profile int) *raft.InMemStore {
 			},
 		}
 		term = 1
-		mem.Set([]byte("currentTerm"), []byte(strconv.Itoa(1)))
 	}
 	mem.AppendLogs(logs)
 	mem.Set([]byte("currentTerm"), []byte(strconv.Itoa(term)))

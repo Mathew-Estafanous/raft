@@ -120,7 +120,9 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 	// must offset to 0th index of the log slice. Use the index of the 0th log
 	// as the base of the offset.
 	idxOffset := logs[0].Index
-	logs = logs[(l.matchIndex[n.ID]+1)-idxOffset : nextIdx-idxOffset]
+	matchIndex := max(0, l.matchIndex[n.ID]+1 - idxOffset)
+	nextIndex := max(0, nextIdx - idxOffset)
+	logs = logs[matchIndex:nextIndex]
 
 	l.mu.Lock()
 	req := &pb.AppendEntriesRequest{
@@ -206,6 +208,13 @@ type appendEntryResp struct {
 
 func min(a, b int64) int64 {
 	if a <= b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int64) int64 {
+	if a >= b {
 		return a
 	}
 	return b
