@@ -541,6 +541,7 @@ func (r *Raft) applyLogs() {
 				cmd: l.Cmd,
 				errorTask: errorTask{errCh: make(chan error)},
 			}
+			i = l.Index
 			r.fsmCh <- restore
 			if restore.Error() != nil {
 				r.logger.Fatalln("Could not successfully restore log snapshot to FSM")

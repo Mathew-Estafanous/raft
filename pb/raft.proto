@@ -18,6 +18,7 @@ message Entry {
   uint64 term = 1;
   int64 index = 2;
   bytes data = 3;
+  bytes type = 4;
 }
 
 message AppendEntriesRequest {

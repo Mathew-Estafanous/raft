@@ -92,7 +92,7 @@ func (m *InMemStore) GetLog(index int64) (*Log, error) {
 
 	minIdx := m.logs[0].Index
 	if index < minIdx {
-		return nil, fmt.Errorf("index %v is below the minimum index %v", index, minIdx)
+		return m.logs[0], nil
 	}
 	return m.logs[index-minIdx], nil
 }
