@@ -245,7 +245,7 @@ func (r *Raft) Apply(cmd []byte) Task {
 	logT := &logTask{
 		log: &Log{
 			Type: Entry,
-			Cmd: cmd,
+			Cmd:  cmd,
 		},
 		errorTask: errorTask{errCh: make(chan error)},
 	}
@@ -538,7 +538,7 @@ func (r *Raft) applyLogs() {
 
 		if l.Type == Snapshot {
 			restore := &fsmRestore{
-				cmd: l.Cmd,
+				cmd:       l.Cmd,
 				errorTask: errorTask{errCh: make(chan error)},
 			}
 			i = l.Index
@@ -555,6 +555,8 @@ func (r *Raft) applyLogs() {
 			if update.Error() != nil {
 				r.logger.Fatalln("Could not successfully apply log entry to FSM")
 			}
+		} else {
+			r.logger.Fatalf("Type %v is not a valid log type", l.Type)
 		}
 	}
 	r.lastApplied = r.commitIndex

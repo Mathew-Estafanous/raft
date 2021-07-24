@@ -42,6 +42,7 @@ func logsToEntries(logs []*Log) []*pb.Entry {
 	entries := make([]*pb.Entry, 0, len(logs))
 	for _, l := range logs {
 		entries = append(entries, &pb.Entry{
+			Type:  []byte{byte(l.Type)},
 			Term:  l.Term,
 			Index: l.Index,
 			Data:  l.Cmd,
@@ -54,6 +55,7 @@ func entriesToLogs(entries []*pb.Entry) []*Log {
 	logs := make([]*Log, 0, len(entries))
 	for _, e := range entries {
 		logs = append(logs, &Log{
+			Type:  logType(e.Type[0]),
 			Term:  e.Term,
 			Index: e.Index,
 			Cmd:   e.Data,

@@ -120,8 +120,8 @@ func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
 	// must offset to 0th index of the log slice. Use the index of the 0th log
 	// as the base of the offset.
 	idxOffset := logs[0].Index
-	matchIndex := max(0, l.matchIndex[n.ID]+1 - idxOffset)
-	nextIndex := max(0, nextIdx - idxOffset)
+	matchIndex := max(0, l.matchIndex[n.ID]+1-idxOffset)
+	nextIndex := max(0, nextIdx-idxOffset)
 	logs = logs[matchIndex:nextIndex]
 
 	l.mu.Lock()
