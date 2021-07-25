@@ -22,7 +22,10 @@ type LogStore interface {
 	LastTerm() uint64
 
 	// GetLog will return the log found at the given index. An error will
-	// be returned if the index is out of bounds.
+	// be returned if the index exceeds the maximum index in the log.
+	//
+	// If the index is less than the minimum index, than the log at minimum
+	// index will be returned instead.
 	GetLog(index int64) (*Log, error)
 
 	// AllLogs retrieves every log entry in the store and returns the result.

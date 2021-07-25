@@ -536,7 +536,8 @@ func (r *Raft) applyLogs() {
 			return
 		}
 
-		if l.Type == Snapshot {
+		switch l.Type {
+		case Snapshot:
 			restore := &fsmRestore{
 				cmd:       l.Cmd,
 				errorTask: errorTask{errCh: make(chan error)},
@@ -546,7 +547,7 @@ func (r *Raft) applyLogs() {
 			if restore.Error() != nil {
 				r.logger.Fatalln("Could not successfully restore log snapshot to FSM")
 			}
-		} else if l.Type == Entry {
+		case Entry:
 			update := &fsmUpdate{
 				cmd:       l.Cmd,
 				errorTask: errorTask{errCh: make(chan error)},
@@ -555,7 +556,7 @@ func (r *Raft) applyLogs() {
 			if update.Error() != nil {
 				r.logger.Fatalln("Could not successfully apply log entry to FSM")
 			}
-		} else {
+		default:
 			r.logger.Fatalf("Type %v is not a valid log type", l.Type)
 		}
 	}

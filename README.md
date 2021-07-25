@@ -22,9 +22,10 @@ List of features that have been developed.
 - [X] Fault tolerance of N/2 failures. (With N being total # of nodes.)
 - [X] Extendable log/stable store interface that lets the client define how they want the
 data to be persistently stored. (An In-Memory implementation is provided for testing.)
+- [X] Log snapshots which compact a given number of logs into one log entry. Enabling state to
+be saved while also limiting the length of the log entries.
 
 These are a few features that are expected to be implemented in the future.
-- [ ] Log snapshots/compaction 
 - [ ] Membership Changes
 
 
