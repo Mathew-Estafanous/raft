@@ -24,6 +24,8 @@ var (
 	// that only a leader is permitted to execute.
 	ErrNotLeader = errors.New("this node is not a leader")
 
+	// DefaultOpts provide a general baseline configuration setting for the raft
+	// node such as election timeouts and log threshold.
 	DefaultOpts = Options{
 		MinElectionTimeout: 150 * time.Millisecond,
 		MaxElectionTimout:  300 * time.Millisecond,
@@ -32,7 +34,7 @@ var (
 		LogThreshold:       200,
 	}
 
-	SlowRaftOpts = Options{
+	SlowOpts = Options{
 		MinElectionTimeout: 1 * time.Second,
 		MaxElectionTimout:  3 * time.Second,
 		HeartBeatTimout:    500 * time.Millisecond,
@@ -58,6 +60,9 @@ type state interface {
 }
 
 // Options defines required constants that the raft will use while running.
+//
+// This library provides about some predefined options to use instead of defining
+// your own options configurations.
 type Options struct {
 	// Range of possible timeouts for elections or for
 	// no heartbeats from the leader.
@@ -563,6 +568,9 @@ func (r *Raft) applyLogs() {
 	r.lastApplied = r.commitIndex
 }
 
+// onSnapshot is called periodically and will check to see if a snapshot should be
+// created based off of the log-threshold. If the threshold is met then a snapshot
+// will be made of the current state of the FSM.
 func (r *Raft) onSnapshot() {
 	r.snapTimer.Reset(r.opts.SnapshotTimer)
 	logs, err := r.log.AllLogs()
@@ -591,6 +599,7 @@ func (r *Raft) onSnapshot() {
 		r.logger.Fatalln(err)
 	}
 
+	// Use the FSM state in a snapshot log that is added to the Log persistence storage.
 	snapLog := &Log{
 		Type:  Snapshot,
 		Index: r.lastApplied,
