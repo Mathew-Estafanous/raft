@@ -2,10 +2,12 @@ package raft
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -85,10 +87,10 @@ type Options struct {
 
 type node struct {
 	// An ID that uniquely identifies the raft in the Cluster.
-	ID uint64
+	ID uint64 `json:"id"`
 
 	// Address of the node, that other rafts can contact.
-	Addr string
+	Addr string `json:"addr"`
 }
 
 // Cluster  keeps track of all other nodes and their addresses.
@@ -100,11 +102,24 @@ type Cluster struct {
 	logger *log.Logger
 }
 
+// NewCluster will create an entirely new cluster that doesn't contain any nodes.
 func NewCluster() *Cluster {
 	return &Cluster{
 		Nodes:  make(map[uint64]node),
 		logger: log.New(os.Stdout, "[Cluster]", log.LstdFlags),
 	}
+}
+
+// NewClusterWithConfig similarly creates a cluster and adds all the nodes that are
+// defined by configuration reader. The config file formatting is expected to be a
+// json format.
+func NewClusterWithConfig(conf io.Reader) (*Cluster, error) {
+	cl := NewCluster()
+	decoder := json.NewDecoder(conf)
+	if err := decoder.Decode(&cl.Nodes); err != nil {
+		return nil, err
+	}
+	return cl, nil
 }
 
 func (c *Cluster) addNode(n node) error {
@@ -115,16 +130,6 @@ func (c *Cluster) addNode(n node) error {
 	}
 	c.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
 	c.Nodes[n.ID] = n
-	return nil
-}
-
-func (c *Cluster) change(id uint64, n node) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.Nodes[id]; !ok {
-		return fmt.Errorf(" node with ID %v was not found", id)
-	}
-	c.Nodes[id] = n
 	return nil
 }
 
@@ -167,12 +172,9 @@ func New(c *Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableSt
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
-	n := node{ID: id}
-	err := c.addNode(n)
-	if err != nil {
-		return nil, err
+	if _, ok := c.Nodes[id]; ok != true {
+		return nil, fmt.Errorf("raft ID: %v is not part of the cluster", id)
 	}
-
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
 	r := &Raft{
 		id:          id,
@@ -211,14 +213,6 @@ func (r *Raft) ListenAndServe(addr string) error {
 // This is a blocking operation and will only return when the raft instance has Shutdown
 // or a fatal error has occurred.
 func (r *Raft) Serve(l net.Listener) error {
-	n := node{
-		ID:   r.id,
-		Addr: l.Addr().String(),
-	}
-	if err := r.cluster.change(r.id, n); err != nil {
-		return err
-	}
-
 	s := newServer(r, l)
 	defer s.shutdown()
 	r.logger.Printf("Starting raft on %v", l.Addr().String())

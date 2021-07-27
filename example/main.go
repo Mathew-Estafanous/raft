@@ -9,23 +9,25 @@ import (
 	"github.com/Mathew-Estafanous/raft"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
-	"time"
 )
 
 func main() {
-	c := raft.NewCluster()
+	f, err := os.Open("config.json")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	c, err := raft.NewClusterWithConfig(f)
+	if err != nil {
+		log.Fatalln(err)
+	}
 	var wg sync.WaitGroup
-
 	wg.Add(3)
 	go makeAndRunKV(1, c, createMemStore(1), &wg)
 	go makeAndRunKV(2, c, createMemStore(2), &wg)
 	go makeAndRunKV(3, c, createMemStore(3), &wg)
-
-	time.Sleep(45 * time.Second)
-	go makeAndRunKV(4, c, createMemStore(4), &wg)
-
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
 }
