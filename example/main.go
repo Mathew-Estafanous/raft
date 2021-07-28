@@ -23,11 +23,14 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	id, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatalln(err)
+	}
 	var wg sync.WaitGroup
-	wg.Add(3)
-	go makeAndRunKV(1, c, createMemStore(1), &wg)
-	go makeAndRunKV(2, c, createMemStore(2), &wg)
-	go makeAndRunKV(3, c, createMemStore(3), &wg)
+	wg.Add(1)
+	go makeAndRunKV(uint64(id), c, createMemStore(id), &wg)
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
 }
