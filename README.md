@@ -43,10 +43,7 @@ All raft nodes are part of a cluster. A cluster is a group of nodes and their as
 by using a configuration file. Configuration files are json formatted with a similar format of,
 ```json
 // Format is:
-// "id": {
-//    id: int, 
-//    addr: string
-// },
+// "id": {id: int, addr: string},
 {
   "1": {
     "id": 1,

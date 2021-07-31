@@ -53,8 +53,7 @@ type StableStore interface {
 // Since it is in-memory, all data is lost on shutdown.
 //
 // NOTE: This implementation is meant for testing and example use-cases and is NOT meant
-// to be used in any production environment. It is up to the user to create the wanted
-// persistence implementation.
+// to be used in any production environment. It is up to the client to create the persistence store.
 type InMemStore struct {
 	mu       sync.Mutex
 	logs     []*Log
