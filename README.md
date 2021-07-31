@@ -42,13 +42,15 @@ memStore := raft.NewMemStore()
 All raft nodes are part of a cluster. A cluster is a group of nodes and their associated addresses. A cluster is initialized
 by using a configuration file. Configuration files are json formatted with a similar format of,
 ```json
+// Format is:
+// "id": {
+//    id: int, 
+//    addr: string
+// },
 {
   "1": {
     "id": 1,
     "addr": ":6001"
-  },
-  {
-    // continue wwith other nodes  
   }
 }
 ```
