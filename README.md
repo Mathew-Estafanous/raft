@@ -15,6 +15,45 @@ and getting a solid understanding of how each problem should be solved prior to 
 distributed systems. This is not intended for production use. If raft is required for production, then it's 
 encouraged that [Hashicorp's](https://github.com/hashicorp/raft) library is used instead.
 
+## How It's Used?
+This raft implementation is designed with flexibility in mind. Providing a platform to inject your own finite state
+machine and your own persistence storage. 
+
+In the [example](https://github.com/Mathew-Estafanous/raft/tree/main/example) use-case, we create a Key-Value store
+that implements the [FSM](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#FSM) interface. Now whenever the raft
+node needs to apply a task to the FSM, it will apply those tasks through the provided API.
+```go
+// kvStore type implements all the methods required for the FSM.
+type kvStore struct {
+	r    *raft.Raft
+	data map[string]string
+}
+```
+
+The client also needs to create their own implementation the [LogStore](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#LogStore) 
+and [StableStore](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#StableStore). In the example use-case we used the
+provided [In-Memory Store](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#InMemStore); **however,** it's important to
+note that in-memory solutions are NOT meant for actual production use.
+```go
+memStore := raft.NewMemStore()
+// add some data to that memory store if needed
+```
+
+Once all of the dependencies are initialized, we can now create the raft node and start serving it on the cluster.
+```go
+r, err := raft.New(raftID, cluster, option, FSM, memStore, memStore)
+if err != nil {
+	log.Fatalf(err)
+}
+go func() {
+    if err := r.ListenAndServe(":6000"); err != nil {
+    log.Println(err)
+    }
+}()
+
+// regular operation of the application as the raft node runs in a different goroutine.
+```
+
 ## In Action (Demo)
 At initial startup, all raft nodes will start their servers using a defined configuration file. In this example, there are
 three servers with IDs of 1-3. This startup demo shows how all three servers are capable of choosing a leader though an election.
@@ -33,10 +72,6 @@ List of features that have been developed.
 data to be persistently stored. (An In-Memory implementation is provided for testing.)
 - [X] Log snapshots which compact a given number of logs into one log entry. Enabling state to
 be saved while also limiting the length of the log entries.
-
-These are a few features that are expected to be implemented in the future.
-- [ ] Membership Changes
-
 
 ## Connect & Contact
 **Email** - mathewestafanous13@gmail.com
