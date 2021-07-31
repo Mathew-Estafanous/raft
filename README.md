@@ -18,12 +18,15 @@ encouraged that [Hashicorp's](https://github.com/hashicorp/raft) library is used
 ## In Action (Demo)
 At initial startup, all raft nodes will start their servers using a defined configuration file. In this example, there are
 three servers with IDs of 1-3. This startup demo shows how all three servers are capable of choosing a leader though an election.
+
 ![raft-startup](https://user-images.githubusercontent.com/56979977/127257133-3f888946-6ef7-4bf7-a495-dc965c4adab2.gif)
 
 A major part of the raft consensus algorithm is the ability for the majority of nodes to safely persist the same
 data on their finite state machines. This demo shows how the leader (when given a request), replicates the log & state across all
 other nodes.
+
 ![raft-data-populate](https://user-images.githubusercontent.com/56979977/127257693-03ec9b7c-f9e8-4756-96be-0728f95e92ab.gif)
+
 ## Features
 List of features that have been developed.
 - [X] Raft cluster leader elections.
