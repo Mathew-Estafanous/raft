@@ -39,6 +39,31 @@ memStore := raft.NewMemStore()
 // add some data to that memory store if needed
 ```
 
+All raft nodes are part of a cluster. A cluster is a group of nodes and their associated addresses. A cluster is initialized
+by using a configuration file. Configuration files are json formatted with a similar format of,
+```json
+{
+  "1": {
+    "id": 1,
+    "addr": ":6001"
+  },
+  {
+    // continue wwith other nodes  
+  }
+}
+```
+Open the config file and use it to initialize a cluster.
+```go
+f, err := os.Open("config.json")
+if err != nil {
+    log.Fatalln(err)
+}
+c, err := raft.NewClusterWithConfig(f)
+if err != nil {
+    log.Fatalln(err)
+}
+```
+
 Once all of the dependencies are initialized, we can now create the raft node and start serving it on the cluster.
 ```go
 r, err := raft.New(raftID, cluster, option, FSM, memStore, memStore)
@@ -46,7 +71,7 @@ if err != nil {
 	log.Fatalf(err)
 }
 go func() {
-    if err := r.ListenAndServe(":6000"); err != nil {
+    if err := r.ListenAndServe(":6001"); err != nil {
     log.Println(err)
     }
 }()
