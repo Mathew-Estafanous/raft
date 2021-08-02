@@ -42,7 +42,7 @@ func (l *leader) runState() {
 	defer func() {
 		var respErr error
 		select {
-		case <- l.shutdownCh:
+		case <-l.shutdownCh:
 			respErr = ErrRaftShutdown
 		default:
 			n, err := l.cluster.getNode(l.leaderId)

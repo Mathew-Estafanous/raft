@@ -47,13 +47,13 @@ var (
 // LeaderError is an error that is returned when a request that is only meant for the leader is
 // sent to a follower or candidate.
 type LeaderError struct {
-	LeaderId uint64
+	LeaderId   uint64
 	LeaderAddr string
 }
 
 func NewLeaderError(id uint64, addr string) *LeaderError {
 	return &LeaderError{
-		LeaderId: id,
+		LeaderId:   id,
 		LeaderAddr: addr,
 	}
 }
