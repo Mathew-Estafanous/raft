@@ -38,7 +38,11 @@ func (c *candidate) runState() {
 
 			c.handleVoteResponse(vote)
 		case t := <-c.applyCh:
-			t.respond(ErrNotLeader)
+			n, err := c.cluster.getNode(c.leaderId)
+			if err != nil {
+				c.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the cluster", c.leaderId)
+			}
+			t.respond(NewLeaderError(n.ID, n.Addr))
 		case <-c.shutdownCh:
 			return
 		}

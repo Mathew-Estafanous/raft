@@ -38,10 +38,22 @@ func (l *leader) runState() {
 	l.indexMu.Unlock()
 
 	// Before breaking out of leader state, respond to any remaining tasks
-	// with an ErrNotLeader error.
+	// with the appropriate error.
 	defer func() {
+		var respErr error
+		select {
+		case <- l.shutdownCh:
+			respErr = ErrRaftShutdown
+		default:
+			n, err := l.cluster.getNode(l.leaderId)
+			if err != nil {
+				l.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the cluster", l.leaderId)
+			}
+			respErr = NewLeaderError(n.ID, n.Addr)
+		}
+
 		for _, v := range l.tasks {
-			v.respond(ErrNotLeader)
+			v.respond(respErr)
 		}
 	}()
 

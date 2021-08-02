@@ -18,7 +18,11 @@ func (f *follower) runState() {
 			f.leaderId = 0
 			return
 		case t := <-f.applyCh:
-			t.respond(ErrNotLeader)
+			n, err := f.cluster.getNode(f.leaderId)
+			if err != nil {
+				f.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the cluster", f.leaderId)
+			}
+			t.respond(NewLeaderError(n.ID, n.Addr))
 		case <-f.snapTimer.C:
 			f.onSnapshot()
 		case <-f.shutdownCh:

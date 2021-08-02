@@ -22,10 +22,6 @@ var (
 	// the raft instance has shutdown.
 	ErrRaftShutdown = errors.New("raft has already shutdown")
 
-	// ErrNotLeader is thrown when a follower/candidate is given some operation
-	// that only a leader is permitted to execute.
-	ErrNotLeader = errors.New("this node is not a leader")
-
 	// DefaultOpts provide a general baseline configuration setting for the raft
 	// node such as election timeouts and log threshold.
 	DefaultOpts = Options{
@@ -47,6 +43,24 @@ var (
 	keyCurrentTerm = []byte("currentTerm")
 	keyVotedFor    = []byte("votedFor")
 )
+
+// LeaderError is an error that is returned when a request that is only meant for the leader is
+// sent to a follower or candidate.
+type LeaderError struct {
+	LeaderId uint64
+	LeaderAddr string
+}
+
+func NewLeaderError(id uint64, addr string) *LeaderError {
+	return &LeaderError{
+		LeaderId: id,
+		LeaderAddr: addr,
+	}
+}
+
+func (l *LeaderError) Error() string {
+	return fmt.Sprintf("This node is not a leader. Leader's ID is %v", l.LeaderId)
+}
 
 type raftState byte
 
@@ -131,6 +145,16 @@ func (c *Cluster) addNode(n node) error {
 	c.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
 	c.Nodes[n.ID] = n
 	return nil
+}
+
+func (c *Cluster) getNode(id uint64) (node, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n, ok := c.Nodes[id]
+	if !ok {
+		return node{}, fmt.Errorf("couldn't find a node with id %v", id)
+	}
+	return n, nil
 }
 
 func (c *Cluster) quorum() int {
