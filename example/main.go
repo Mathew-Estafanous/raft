@@ -51,7 +51,7 @@ func makeAndRunKV(id uint64, c *raft.Cluster, mem *raft.InMemStore, wg *sync.Wai
 	}()
 
 	kvPort := ":" + strconv.Itoa(int(8000+id))
-	if err = http.ListenAndServe(kvPort, kv); err != nil {
+	if err = http.ListenAndServe(kvPort, &kvHandler{kv}); err != nil {
 		log.Println(err)
 	}
 	wg.Done()

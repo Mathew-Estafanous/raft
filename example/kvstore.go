@@ -50,13 +50,17 @@ func (k *kvStore) Restore(cmd []byte) error {
 	return nil
 }
 
-func (k *kvStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+type kvHandler struct {
+	s *kvStore
+}
+
+func (k *kvHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	paths := strings.Split(r.URL.Path, "/")
 	w.Header().Set("Content-Type", "text/plain")
 	switch r.Method {
 	case http.MethodGet:
 		var b bytes.Buffer
-		for k, v := range k.data {
+		for k, v := range k.s.data {
 			if _, err := fmt.Fprintf(&b, "%v=\"%v\"\n", k, v); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
@@ -70,7 +74,7 @@ func (k *kvStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		cmd := strings.Replace(paths[1], "=", " ", 1)
-		t := k.r.Apply([]byte(cmd))
+		t := k.s.r.Apply([]byte(cmd))
 
 		if err := t.Error(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
