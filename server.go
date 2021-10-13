@@ -50,7 +50,7 @@ type gRPCRaftServer struct {
 	r *Raft
 }
 
-func (g gRPCRaftServer) RequestVote(ctx context.Context, request *pb.VoteRequest) (*pb.VoteResponse, error) {
+func (g gRPCRaftServer) RequestVote(_ context.Context, request *pb.VoteRequest) (*pb.VoteResponse, error) {
 	r := g.r.handleRPC(request)
 	if r.error != nil {
 		return nil, r.error
@@ -58,7 +58,7 @@ func (g gRPCRaftServer) RequestVote(ctx context.Context, request *pb.VoteRequest
 	return r.resp.(*pb.VoteResponse), nil
 }
 
-func (g gRPCRaftServer) AppendEntry(ctx context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+func (g gRPCRaftServer) AppendEntry(_ context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	r := g.r.handleRPC(request)
 	if r.error != nil {
 		return nil, r.error
