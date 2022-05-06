@@ -44,6 +44,14 @@ var (
 	keyVotedFor    = []byte("votedFor")
 )
 
+type raftState byte
+
+const (
+	Follower  raftState = 'F'
+	Candidate raftState = 'C'
+	Leader    raftState = 'L'
+)
+
 // LeaderError is an error that is returned when a request that is only meant for the leader is
 // sent to a follower or candidate.
 type LeaderError struct {
@@ -61,14 +69,6 @@ func NewLeaderError(id uint64, addr string) *LeaderError {
 func (l *LeaderError) Error() string {
 	return fmt.Sprintf("This node is not a leader. Leader's ID is %v", l.LeaderId)
 }
-
-type raftState byte
-
-const (
-	Follower  raftState = 'F'
-	Candidate raftState = 'C'
-	Leader    raftState = 'L'
-)
 
 type state interface {
 	runState()
