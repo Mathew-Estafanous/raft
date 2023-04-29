@@ -97,7 +97,7 @@ type Options struct {
 	LogThreshold uint64
 }
 
-// Raft represents a node within the entire raft cluster. It contains the core logic
+// Raft represents a node within the entire raft static. It contains the core logic
 // of the consensus algorithm such as keeping track of leaders, replicated logs and
 // other important state.
 type Raft struct {
@@ -133,7 +133,7 @@ func New(c Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
 	if _, err := c.GetNode(id); err != nil {
-		return nil, fmt.Errorf("raft ID: %v is not part of the cluster", id)
+		return nil, fmt.Errorf("raft ID: %v is not part of the static", id)
 	}
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
 	r := &Raft{

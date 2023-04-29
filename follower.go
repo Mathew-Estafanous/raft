@@ -20,7 +20,7 @@ func (f *follower) runState() {
 		case t := <-f.applyCh:
 			n, err := f.cluster.GetNode(f.leaderId)
 			if err != nil {
-				f.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the cluster", f.leaderId)
+				f.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the static", f.leaderId)
 			}
 			t.respond(NewLeaderError(n.ID, n.Addr))
 		case <-f.snapTimer.C:
