@@ -38,7 +38,7 @@ func (c *candidate) runState() {
 
 			c.handleVoteResponse(vote)
 		case t := <-c.applyCh:
-			n, err := c.cluster.getNode(c.leaderId)
+			n, err := c.cluster.GetNode(c.leaderId)
 			if err != nil {
 				c.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the cluster", c.leaderId)
 			}
@@ -52,8 +52,8 @@ func (c *candidate) runState() {
 // sendVoteRequests will initialize and send the vote requests to other nodes
 // in the Cluster and return results in a vote channel.
 func (c *candidate) sendVoteRequests() {
-	c.voteCh = make(chan rpcResp, len(c.cluster.Nodes))
-	c.votesNeeded = c.cluster.quorum() - 1
+	c.voteCh = make(chan rpcResp, len(c.cluster.AllNodes()))
+	c.votesNeeded = c.cluster.Quorum() - 1
 	c.setStableStore(keyVotedFor, c.id)
 	req := &pb.VoteRequest{
 		Term:         c.fromStableStore(keyCurrentTerm),
@@ -62,13 +62,13 @@ func (c *candidate) sendVoteRequests() {
 		LastLogTerm:  c.log.LastTerm(),
 	}
 
-	for _, v := range c.cluster.Nodes {
+	for _, v := range c.cluster.AllNodes() {
 		if v.ID == c.id {
 			continue
 		}
 
 		// Make RPC request in a separate goroutine to prevent blocking operations.
-		go func(n node) {
+		go func(n Node) {
 			res := c.sendRPC(req, n)
 			c.voteCh <- res
 		}(v)

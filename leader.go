@@ -25,7 +25,7 @@ func (l *leader) getType() raftState {
 func (l *leader) runState() {
 	l.heartbeat.Reset(l.opts.HeartBeatTimout)
 	l.indexMu.Lock()
-	for k := range l.cluster.Nodes {
+	for k := range l.cluster.AllNodes() {
 		// Initialize own matchIndex with the last index that has been
 		// added to own log.
 		if k == l.id {
@@ -45,7 +45,7 @@ func (l *leader) runState() {
 		case <-l.shutdownCh:
 			respErr = ErrRaftShutdown
 		default:
-			n, err := l.cluster.getNode(l.leaderId)
+			n, err := l.cluster.GetNode(l.leaderId)
 			if err != nil {
 				l.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the cluster", l.leaderId)
 			}
@@ -60,7 +60,7 @@ func (l *leader) runState() {
 	for l.getState().getType() == Leader {
 		select {
 		case <-l.heartbeat.C:
-			for _, n := range l.cluster.Nodes {
+			for _, n := range l.cluster.AllNodes() {
 				if n.ID != l.id {
 					go l.sendAppendReq(n, l.nextIndex[n.ID], true)
 				}
@@ -92,7 +92,7 @@ func (l *leader) runState() {
 			// would make a heartbeat unnecessary.
 			l.heartbeat.Reset(l.opts.HeartBeatTimout)
 
-			for _, n := range l.cluster.Nodes {
+			for _, n := range l.cluster.AllNodes() {
 				if n.ID != l.id {
 					go l.sendAppendReq(n, l.nextIndex[n.ID], false)
 				}
@@ -105,7 +105,7 @@ func (l *leader) runState() {
 	}
 }
 
-func (l *leader) sendAppendReq(n node, nextIdx int64, isHeartbeat bool) {
+func (l *leader) sendAppendReq(n Node, nextIdx int64, isHeartbeat bool) {
 	l.indexMu.Lock()
 	prevIndex := nextIdx - 1
 	var prevTerm uint64
@@ -199,7 +199,7 @@ func (l *leader) setCommitIndex(comIdx int64) {
 }
 
 func (l *leader) majorityMatch(N int64) bool {
-	majority := l.cluster.quorum()
+	majority := l.cluster.Quorum()
 	matchCount := 0
 	for _, v := range l.matchIndex {
 		if v == N {

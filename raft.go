@@ -2,12 +2,10 @@ package raft
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
-	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -99,68 +97,6 @@ type Options struct {
 	LogThreshold uint64
 }
 
-type node struct {
-	// An ID that uniquely identifies the raft in the Cluster.
-	ID uint64 `json:"id"`
-
-	// Address of the node, that other rafts can contact.
-	Addr string `json:"addr"`
-}
-
-// Cluster  keeps track of all other nodes and their addresses.
-// It also holds agreed upon constants such as heart beat time and election timeout.
-type Cluster struct {
-	mu sync.Mutex
-	// AllLogs the nodes within the raft Cluster. Key is an raft id.
-	Nodes  map[uint64]node
-	logger *log.Logger
-}
-
-// NewCluster will create an entirely new cluster that doesn't contain any nodes.
-func NewCluster() *Cluster {
-	return &Cluster{
-		Nodes:  make(map[uint64]node),
-		logger: log.New(os.Stdout, "[Cluster]", log.LstdFlags),
-	}
-}
-
-// NewClusterWithConfig similarly creates a cluster and adds all the nodes that are
-// defined by configuration reader. The config file formatting is expected to be a
-// json format.
-func NewClusterWithConfig(conf io.Reader) (*Cluster, error) {
-	cl := NewCluster()
-	decoder := json.NewDecoder(conf)
-	if err := decoder.Decode(&cl.Nodes); err != nil {
-		return nil, err
-	}
-	return cl, nil
-}
-
-func (c *Cluster) addNode(n node) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.Nodes[n.ID]; ok {
-		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
-	}
-	c.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
-	c.Nodes[n.ID] = n
-	return nil
-}
-
-func (c *Cluster) getNode(id uint64) (node, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	n, ok := c.Nodes[id]
-	if !ok {
-		return node{}, fmt.Errorf("couldn't find a node with id %v", id)
-	}
-	return n, nil
-}
-
-func (c *Cluster) quorum() int {
-	return len(c.Nodes)/2 + 1
-}
-
 // Raft represents a node within the entire raft cluster. It contains the core logic
 // of the consensus algorithm such as keeping track of leaders, replicated logs and
 // other important state.
@@ -171,7 +107,7 @@ type Raft struct {
 	logger    *log.Logger
 
 	mu      sync.Mutex
-	cluster *Cluster
+	cluster Cluster
 	opts    Options
 	fsm     FSM
 
@@ -192,11 +128,11 @@ type Raft struct {
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
-func New(c *Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
+func New(c Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
-	if _, ok := c.Nodes[id]; ok != true {
+	if _, err := c.GetNode(id); err != nil {
 		return nil, fmt.Errorf("raft ID: %v is not part of the cluster", id)
 	}
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
@@ -313,7 +249,7 @@ func (r *Raft) setState(s raftState) {
 		r.state = &leader{
 			Raft:          r,
 			heartbeat:     time.NewTimer(1 * time.Hour),
-			appendEntryCh: make(chan appendEntryResp, len(r.cluster.Nodes)),
+			appendEntryCh: make(chan appendEntryResp, len(r.cluster.AllNodes())),
 			nextIndex:     make(map[uint64]int64),
 			matchIndex:    make(map[uint64]int64),
 			tasks:         make(map[int64]*logTask),
@@ -508,7 +444,7 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	return resp
 }
 
-func (r *Raft) sendRPC(req interface{}, target node) rpcResp {
+func (r *Raft) sendRPC(req interface{}, target Node) rpcResp {
 	conn, err := grpc.Dial(target.Addr, grpc.WithInsecure())
 	if err != nil {
 		return toRPCResponse(nil, err)

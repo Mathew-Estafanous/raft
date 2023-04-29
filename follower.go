@@ -18,7 +18,7 @@ func (f *follower) runState() {
 			f.leaderId = 0
 			return
 		case t := <-f.applyCh:
-			n, err := f.cluster.getNode(f.leaderId)
+			n, err := f.cluster.GetNode(f.leaderId)
 			if err != nil {
 				f.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the cluster", f.leaderId)
 			}
