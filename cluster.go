@@ -82,14 +82,39 @@ type DynamicCluster struct {
 	logger *log.Logger
 }
 
+func NewDynamicCluster(port uint16) (*DynamicCluster, error) {
+	cluster := &DynamicCluster{
+		cl:     NewCluster(),
+		logger: log.New(os.Stdout, fmt.Sprintf("[Dynamic Cluster: %d]", port), log.LstdFlags),
+	}
+	config := memlist.DefaultLocalConfig()
+	config.BindPort = port
+	config.EventListener = cluster
+	member, err := memlist.Create(config)
+	if err != nil {
+		return nil, err
+	}
+	cluster.member = member
+	return cluster, nil
+}
+
 func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
 	node := Node{}
 	switch peer.State {
 	case memlist.Alive:
 		err := addNode(c.cl, node)
 		if err != nil {
+			c.logger.Printf("Failed to add node: %v", err)
 			return
 		}
+		c.logger.Printf("[Dynamic Cluster] Added a new node with ID: %d and Address: %v", node.ID, node.Addr)
+	case memlist.Left, memlist.Dead:
+		err := removeNode(c.cl, node)
+		if err != nil {
+			c.logger.Printf("Failed to remove node: %v", err)
+			return
+		}
+		c.logger.Printf("[Dynamic Cluster] Removed a node with ID: %d and Address: %v", node.ID, node.Addr)
 	}
 }
 
@@ -107,23 +132,18 @@ func addNode(cl *StaticCluster, n Node) error {
 	if _, ok := cl.Nodes[n.ID]; ok {
 		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
 	}
-	cl.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
+	cl.logger.Printf("[Cluster] Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
 	cl.Nodes[n.ID] = n
 	return nil
 }
 
-func NewDynamicCluster(port uint16) (*DynamicCluster, error) {
-	cluster := &DynamicCluster{
-		cl:     NewCluster(),
-		logger: log.New(os.Stdout, fmt.Sprintf("[Dynamic Cluster: %d]", port), log.LstdFlags),
+func removeNode(cl *StaticCluster, n Node) error {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	if _, ok := cl.Nodes[n.ID]; !ok {
+		return fmt.Errorf("[Cluster] A node with ID: %d is not registered", n.ID)
 	}
-	config := memlist.DefaultLocalConfig()
-	config.BindPort = port
-	config.EventListener = cluster
-	member, err := memlist.Create(config)
-	if err != nil {
-		return nil, err
-	}
-	cluster.member = member
-	return cluster, nil
+	cl.logger.Printf("[Cluster] Removed a node with ID: %d and Address: %v", n.ID, n.Addr)
+	delete(cl.Nodes, n.ID)
+	return nil
 }
