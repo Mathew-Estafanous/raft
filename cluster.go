@@ -76,10 +76,36 @@ func (c *StaticCluster) Quorum() int {
 	return len(c.Nodes)/2 + 1
 }
 
+func (c *StaticCluster) addNode(n Node) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.Nodes[n.ID]; ok {
+		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
+	}
+	c.logger.Printf("[Cluster] Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
+	c.Nodes[n.ID] = n
+	return nil
+}
+
+func (c *StaticCluster) removeNode(id uint64) (Node, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n, ok := c.Nodes[id]
+	if !ok {
+		return Node{}, fmt.Errorf("[Cluster] A node with ID: %d is not registered", id)
+	}
+	c.logger.Printf("[Cluster] Removed a node with ID: %d and Address: %v", n.ID, n.Addr)
+	delete(c.Nodes, n.ID)
+	return n, nil
+}
+
 type DynamicCluster struct {
 	cl     *StaticCluster
 	member *memlist.Member
 	logger *log.Logger
+
+	mu       sync.Mutex
+	memIDMap map[string]uint64
 }
 
 func NewDynamicCluster(port uint16) (*DynamicCluster, error) {
@@ -99,17 +125,20 @@ func NewDynamicCluster(port uint16) (*DynamicCluster, error) {
 }
 
 func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
-	node := Node{}
 	switch peer.State {
 	case memlist.Alive:
-		err := addNode(c.cl, node)
+		node, ok := peer.Data.(Node)
+		if !ok {
+			c.logger.Printf("Failed to get")
+		}
+		err := c.addNode(peer.Name, node)
 		if err != nil {
 			c.logger.Printf("Failed to add node: %v", err)
 			return
 		}
 		c.logger.Printf("[Dynamic Cluster] Added a new node with ID: %d and Address: %v", node.ID, node.Addr)
 	case memlist.Left, memlist.Dead:
-		err := removeNode(c.cl, node)
+		node, err := c.removeNode(peer.Name)
 		if err != nil {
 			c.logger.Printf("Failed to remove node: %v", err)
 			return
@@ -118,32 +147,28 @@ func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
 	}
 }
 
-func (c *DynamicCluster) Join(otherAddr string) error {
-	return c.member.Join(otherAddr)
+func (c *DynamicCluster) Join(otherAddr string, raftNode Node) error {
+	return c.member.Join(otherAddr, raftNode)
 }
 
 func (c *DynamicCluster) Leave() error {
 	return c.member.Leave(time.Second * 10)
 }
 
-func addNode(cl *StaticCluster, n Node) error {
-	cl.mu.Lock()
-	defer cl.mu.Unlock()
-	if _, ok := cl.Nodes[n.ID]; ok {
-		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
-	}
-	cl.logger.Printf("[Cluster] Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
-	cl.Nodes[n.ID] = n
-	return nil
+func (c *DynamicCluster) addNode(name string, node Node) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.memIDMap[name] = node.ID
+	return c.cl.addNode(node)
 }
 
-func removeNode(cl *StaticCluster, n Node) error {
-	cl.mu.Lock()
-	defer cl.mu.Unlock()
-	if _, ok := cl.Nodes[n.ID]; !ok {
-		return fmt.Errorf("[Cluster] A node with ID: %d is not registered", n.ID)
+func (c *DynamicCluster) removeNode(name string) (Node, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	id, found := c.memIDMap[name]
+	if !found {
+		return Node{}, fmt.Errorf("couldn't find member with name %v", name)
 	}
-	cl.logger.Printf("[Cluster] Removed a node with ID: %d and Address: %v", n.ID, n.Addr)
-	delete(cl.Nodes, n.ID)
-	return nil
+	delete(c.memIDMap, name)
+	return c.cl.removeNode(id)
 }
