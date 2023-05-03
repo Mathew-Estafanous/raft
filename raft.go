@@ -132,9 +132,6 @@ func New(c Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
-	if _, err := c.GetNode(id); err != nil {
-		return nil, fmt.Errorf("raft ID: %v is not part of the static", id)
-	}
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
 	r := &Raft{
 		id:          id,

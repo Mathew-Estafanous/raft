@@ -14,22 +14,29 @@ import (
 	"sync"
 )
 
+// [exe] <MemberPort> <ID> <Address* (of another node in the cluster)>
 func main() {
-	f, err := os.Open("config.json")
+	memPort, err := strconv.Atoi(os.Args[1])
 	if err != nil {
 		log.Fatalln(err)
 	}
-	c, err := raft.NewClusterWithConfig(f)
+	c, err := raft.NewDynamicCluster(uint16(memPort))
+	if err != nil {
+		log.Fatalln(err)
+	}
+	id, err := strconv.Atoi(os.Args[2])
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	id, err := strconv.Atoi(os.Args[1])
-	if err != nil {
-		log.Fatalln(err)
-	}
 	var wg sync.WaitGroup
 	wg.Add(1)
+	if len(os.Args) >= 4 {
+		raftPort := ":" + strconv.Itoa(6000+id)
+		if err = c.Join(":"+os.Args[3], raft.Node{ID: uint64(id), Addr: raftPort}); err != nil {
+			log.Fatalln(err)
+		}
+	}
 	go makeAndRunKV(uint64(id), c, createMemStore(id), &wg)
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
@@ -59,7 +66,7 @@ func makeAndRunKV(id uint64, c raft.Cluster, mem *raft.InMemStore, wg *sync.Wait
 
 func createMemStore(profile int) *raft.InMemStore {
 	mem := raft.NewMemStore()
-	var logs []*raft.Log
+	logs := make([]*raft.Log, 0)
 	var term int
 	if profile == 1 {
 		logs = []*raft.Log{

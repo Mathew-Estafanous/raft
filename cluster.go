@@ -1,12 +1,14 @@
 package raft
 
 import (
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"github.com/Mathew-Estafanous/memlist"
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -109,11 +111,14 @@ type DynamicCluster struct {
 }
 
 func NewDynamicCluster(port uint16) (*DynamicCluster, error) {
+	gob.Register(Node{})
 	cluster := &DynamicCluster{
-		cl:     NewCluster(),
-		logger: log.New(os.Stdout, fmt.Sprintf("[Dynamic Cluster: %d]", port), log.LstdFlags),
+		cl:       NewCluster(),
+		logger:   log.New(os.Stdout, fmt.Sprintf("[Dynamic Cluster :%d]", port), log.LstdFlags),
+		memIDMap: make(map[string]uint64),
 	}
 	config := memlist.DefaultLocalConfig()
+	config.Name = "Member #" + strconv.Itoa(int(port))
 	config.BindPort = port
 	config.EventListener = cluster
 	member, err := memlist.Create(config)
@@ -122,6 +127,18 @@ func NewDynamicCluster(port uint16) (*DynamicCluster, error) {
 	}
 	cluster.member = member
 	return cluster, nil
+}
+
+func (c *DynamicCluster) GetNode(id uint64) (Node, error) {
+	return c.cl.GetNode(id)
+}
+
+func (c *DynamicCluster) AllNodes() map[uint64]Node {
+	return c.cl.AllNodes()
+}
+
+func (c *DynamicCluster) Quorum() int {
+	return c.cl.Quorum()
 }
 
 func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
@@ -136,18 +153,22 @@ func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
 			c.logger.Printf("Failed to add node: %v", err)
 			return
 		}
-		c.logger.Printf("[Dynamic Cluster] Added a new node with ID: %d and Address: %v", node.ID, node.Addr)
+		c.logger.Printf("Added a new node with ID: %d and Address: %v", node.ID, node.Addr)
 	case memlist.Left, memlist.Dead:
 		node, err := c.removeNode(peer.Name)
 		if err != nil {
 			c.logger.Printf("Failed to remove node: %v", err)
 			return
 		}
-		c.logger.Printf("[Dynamic Cluster] Removed a node with ID: %d and Address: %v", node.ID, node.Addr)
+		c.logger.Printf("Removed a node with ID: %d and Address: %v", node.ID, node.Addr)
 	}
 }
 
 func (c *DynamicCluster) Join(otherAddr string, raftNode Node) error {
+	err := c.cl.addNode(raftNode)
+	if err != nil {
+		return err
+	}
 	return c.member.Join(otherAddr, raftNode)
 }
 

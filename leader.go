@@ -47,7 +47,7 @@ func (l *leader) runState() {
 		default:
 			n, err := l.cluster.GetNode(l.leaderId)
 			if err != nil {
-				l.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the static", l.leaderId)
+				l.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", l.leaderId)
 			}
 			respErr = NewLeaderError(n.ID, n.Addr)
 		}
