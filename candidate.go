@@ -40,7 +40,7 @@ func (c *candidate) runState() {
 		case t := <-c.applyCh:
 			n, err := c.cluster.GetNode(c.leaderId)
 			if err != nil {
-				c.logger.Fatalf("[BUG] Couldn't find a leader with ID %v in the static", c.leaderId)
+				c.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", c.leaderId)
 			}
 			t.respond(NewLeaderError(n.ID, n.Addr))
 		case <-c.shutdownCh:

@@ -84,7 +84,7 @@ func (c *StaticCluster) addNode(n Node) error {
 	if _, ok := c.Nodes[n.ID]; ok {
 		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
 	}
-	c.logger.Printf("[Cluster] Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
+	c.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
 	c.Nodes[n.ID] = n
 	return nil
 }
@@ -96,7 +96,7 @@ func (c *StaticCluster) removeNode(id uint64) (Node, error) {
 	if !ok {
 		return Node{}, fmt.Errorf("[Cluster] A node with ID: %d is not registered", id)
 	}
-	c.logger.Printf("[Cluster] Removed a node with ID: %d and Address: %v", n.ID, n.Addr)
+	c.logger.Printf("Removed a node with ID: %d and Address: %v", n.ID, n.Addr)
 	delete(c.Nodes, n.ID)
 	return n, nil
 }
@@ -106,26 +106,30 @@ type DynamicCluster struct {
 	member *memlist.Member
 	logger *log.Logger
 
-	mu       sync.Mutex
-	memIDMap map[string]uint64
+	mu sync.Mutex
 }
 
-func NewDynamicCluster(port uint16) (*DynamicCluster, error) {
+func NewDynamicCluster(port uint16, raftNode Node) (*DynamicCluster, error) {
 	gob.Register(Node{})
 	cluster := &DynamicCluster{
-		cl:       NewCluster(),
-		logger:   log.New(os.Stdout, fmt.Sprintf("[Dynamic Cluster :%d]", port), log.LstdFlags),
-		memIDMap: make(map[string]uint64),
+		cl:     NewCluster(),
+		logger: log.New(os.Stdout, fmt.Sprintf("[Dynamic Cluster :%d]", port), log.LstdFlags),
 	}
 	config := memlist.DefaultLocalConfig()
-	config.Name = "Member #" + strconv.Itoa(int(port))
+	config.Name = "M#" + strconv.Itoa(int(port))
 	config.BindPort = port
 	config.EventListener = cluster
+	config.MetaData = raftNode
 	member, err := memlist.Create(config)
 	if err != nil {
 		return nil, err
 	}
 	cluster.member = member
+
+	err = cluster.cl.addNode(raftNode)
+	if err != nil {
+		return nil, err
+	}
 	return cluster, nil
 }
 
@@ -142,20 +146,19 @@ func (c *DynamicCluster) Quorum() int {
 }
 
 func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
+	node, ok := peer.Data.(Node)
+	if !ok {
+		c.logger.Printf("Failed to get member node Data: %v", peer.Data)
+	}
 	switch peer.State {
 	case memlist.Alive:
-		node, ok := peer.Data.(Node)
-		if !ok {
-			c.logger.Printf("Failed to get")
-		}
-		err := c.addNode(peer.Name, node)
+		err := c.cl.addNode(node)
 		if err != nil {
 			c.logger.Printf("Failed to add node: %v", err)
 			return
 		}
-		c.logger.Printf("Added a new node with ID: %d and Address: %v", node.ID, node.Addr)
 	case memlist.Left, memlist.Dead:
-		node, err := c.removeNode(peer.Name)
+		node, err := c.cl.removeNode(node.ID)
 		if err != nil {
 			c.logger.Printf("Failed to remove node: %v", err)
 			return
@@ -164,32 +167,11 @@ func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
 	}
 }
 
-func (c *DynamicCluster) Join(otherAddr string, raftNode Node) error {
-	err := c.cl.addNode(raftNode)
-	if err != nil {
-		return err
-	}
-	return c.member.Join(otherAddr, raftNode)
+// Join will initiate the joining process of the raft node to the cluster.
+func (c *DynamicCluster) Join(otherAddr string) error {
+	return c.member.Join(otherAddr)
 }
 
-func (c *DynamicCluster) Leave() error {
-	return c.member.Leave(time.Second * 10)
-}
-
-func (c *DynamicCluster) addNode(name string, node Node) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.memIDMap[name] = node.ID
-	return c.cl.addNode(node)
-}
-
-func (c *DynamicCluster) removeNode(name string) (Node, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	id, found := c.memIDMap[name]
-	if !found {
-		return Node{}, fmt.Errorf("couldn't find member with name %v", name)
-	}
-	delete(c.memIDMap, name)
-	return c.cl.removeNode(id)
+func (c *DynamicCluster) Leave(timeout time.Duration) error {
+	return c.member.Leave(timeout)
 }

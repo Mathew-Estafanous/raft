@@ -20,11 +20,13 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	c, err := raft.NewDynamicCluster(uint16(memPort))
+	id, err := strconv.Atoi(os.Args[2])
 	if err != nil {
 		log.Fatalln(err)
 	}
-	id, err := strconv.Atoi(os.Args[2])
+	raftPort := ":" + strconv.Itoa(6000+id)
+
+	c, err := raft.NewDynamicCluster(uint16(memPort), raft.Node{ID: uint64(id), Addr: raftPort})
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -32,8 +34,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	if len(os.Args) >= 4 {
-		raftPort := ":" + strconv.Itoa(6000+id)
-		if err = c.Join(":"+os.Args[3], raft.Node{ID: uint64(id), Addr: raftPort}); err != nil {
+		if err = c.Join(":" + os.Args[3]); err != nil {
 			log.Fatalln(err)
 		}
 	}

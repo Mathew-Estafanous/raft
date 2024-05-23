@@ -10,18 +10,18 @@ import (
 	"strings"
 )
 
-type kvStore struct {
+type KvStore struct {
 	r    *raft.Raft
 	data map[string]string
 }
 
-func NewStore() *kvStore {
-	return &kvStore{
+func NewStore() *KvStore {
+	return &KvStore{
 		data: make(map[string]string),
 	}
 }
 
-func (k *kvStore) Apply(data []byte) error {
+func (k *KvStore) Apply(data []byte) error {
 	dataConv := strings.Split(string(data), " ")
 	if len(dataConv) != 2 {
 		return errors.New("invalid set command")
@@ -31,7 +31,7 @@ func (k *kvStore) Apply(data []byte) error {
 	return nil
 }
 
-func (k *kvStore) Snapshot() ([]byte, error) {
+func (k *KvStore) Snapshot() ([]byte, error) {
 	var buf bytes.Buffer
 	en := gob.NewEncoder(&buf)
 	if err := en.Encode(k.data); err != nil {
@@ -40,7 +40,7 @@ func (k *kvStore) Snapshot() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (k *kvStore) Restore(cmd []byte) error {
+func (k *KvStore) Restore(cmd []byte) error {
 	dec := gob.NewDecoder(bytes.NewBuffer(cmd))
 	state := make(map[string]string)
 	if err := dec.Decode(&state); err != nil {
@@ -51,7 +51,7 @@ func (k *kvStore) Restore(cmd []byte) error {
 }
 
 type kvHandler struct {
-	s *kvStore
+	s *KvStore
 }
 
 func (k *kvHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
