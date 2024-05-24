@@ -1,31 +1,23 @@
 package raft
 
-type follower struct {
-	*Raft
-}
-
-func (f *follower) getType() raftState {
-	return Follower
-}
-
-func (f *follower) runState() {
-	f.timer.Reset(f.randElectTime())
-	for f.getState().getType() == Follower {
+func (r *Raft) runFollowerState() {
+	r.timer.Reset(r.randElectTime())
+	for r.getState() == Follower {
 		select {
-		case <-f.timer.C:
-			f.logger.Println("Timeout event has occurred.")
-			f.setState(Candidate)
-			f.leaderId = 0
+		case <-r.timer.C:
+			r.logger.Println("Timeout event has occurred.")
+			r.setState(Candidate)
+			r.leaderId = 0
 			return
-		case t := <-f.applyCh:
-			n, err := f.cluster.GetNode(f.leaderId)
+		case t := <-r.applyCh:
+			n, err := r.cluster.GetNode(r.leaderId)
 			if err != nil {
-				f.logger.Fatalf("[BUG] Couldn't find a leader with ID %v.", f.leaderId)
+				r.logger.Fatalf("[BUG] Couldn't find a leader with ID %v.", r.leaderId)
 			}
 			t.respond(NewLeaderError(n.ID, n.Addr))
-		case <-f.snapTimer.C:
-			f.onSnapshot()
-		case <-f.shutdownCh:
+		case <-r.snapTimer.C:
+			r.onSnapshot()
+		case <-r.shutdownCh:
 			return
 		}
 	}

@@ -2,48 +2,36 @@ package raft
 
 import (
 	"github.com/Mathew-Estafanous/raft/pb"
-	"time"
 )
 
-type candidate struct {
-	*Raft
-	electionTimer *time.Timer
-	votesNeeded   int
-	voteCh        chan rpcResp
-}
-
-func (c *candidate) getType() raftState {
-	return Candidate
-}
-
-func (c *candidate) runState() {
-	c.electionTimer.Reset(c.randElectTime())
-	c.setStableStore(keyCurrentTerm, c.fromStableStore(keyCurrentTerm)+1)
-	c.logger.Printf("Candidate started election for term %v.", c.fromStableStore(keyCurrentTerm))
+func (r *Raft) runCandidateState() {
+	r.electionTimer.Reset(r.randElectTime())
+	r.setStableStore(keyCurrentTerm, r.fromStableStore(keyCurrentTerm)+1)
+	r.logger.Printf("Candidate started election for term %v.", r.fromStableStore(keyCurrentTerm))
 
 	// Run election for candidate by sending request votes to other nodes.
-	c.sendVoteRequests()
+	r.sendVoteRequests()
 
-	for c.getState().getType() == Candidate {
+	for r.getState() == Candidate {
 		select {
-		case <-c.electionTimer.C:
-			c.logger.Printf("Election has failed for term %d", c.fromStableStore(keyCurrentTerm))
+		case <-r.electionTimer.C:
+			r.logger.Printf("Election has failed for term %d", r.fromStableStore(keyCurrentTerm))
 			return
-		case v := <-c.voteCh:
+		case v := <-r.voteCh:
 			if v.error != nil {
-				c.logger.Printf("A vote request has failed: %v", v.error)
+				r.logger.Printf("A vote request has failed: %v", v.error)
 				break
 			}
 			vote := v.resp.(*pb.VoteResponse)
 
-			c.handleVoteResponse(vote)
-		case t := <-c.applyCh:
-			n, err := c.cluster.GetNode(c.leaderId)
+			r.handleVoteResponse(vote)
+		case t := <-r.applyCh:
+			n, err := r.cluster.GetNode(r.leaderId)
 			if err != nil {
-				c.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", c.leaderId)
+				r.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", r.leaderId)
 			}
 			t.respond(NewLeaderError(n.ID, n.Addr))
-		case <-c.shutdownCh:
+		case <-r.shutdownCh:
 			return
 		}
 	}
@@ -51,46 +39,46 @@ func (c *candidate) runState() {
 
 // sendVoteRequests will initialize and send the vote requests to other nodes
 // in the Cluster and return results in a vote channel.
-func (c *candidate) sendVoteRequests() {
-	c.voteCh = make(chan rpcResp, len(c.cluster.AllNodes()))
-	c.votesNeeded = c.cluster.Quorum() - 1
-	c.setStableStore(keyVotedFor, c.id)
+func (r *Raft) sendVoteRequests() {
+	r.voteCh = make(chan rpcResp, len(r.cluster.AllNodes()))
+	r.votesNeeded = r.cluster.Quorum() - 1
+	r.setStableStore(keyVotedFor, r.id)
 	req := &pb.VoteRequest{
-		Term:         c.fromStableStore(keyCurrentTerm),
-		CandidateId:  c.id,
-		LastLogIndex: c.log.LastIndex(),
-		LastLogTerm:  c.log.LastTerm(),
+		Term:         r.fromStableStore(keyCurrentTerm),
+		CandidateId:  r.id,
+		LastLogIndex: r.log.LastIndex(),
+		LastLogTerm:  r.log.LastTerm(),
 	}
 
-	for _, v := range c.cluster.AllNodes() {
-		if v.ID == c.id {
+	for _, v := range r.cluster.AllNodes() {
+		if v.ID == r.id {
 			continue
 		}
 
 		// Make RPC request in a separate goroutine to prevent blocking operations.
 		go func(n Node) {
-			res := c.sendRPC(req, n)
-			c.voteCh <- res
+			res := r.sendRPC(req, n)
+			r.voteCh <- res
 		}(v)
 	}
 }
 
-func (c *candidate) handleVoteResponse(vote *pb.VoteResponse) {
-	// If term of peer is greater then go back to follower
+func (r *Raft) handleVoteResponse(vote *pb.VoteResponse) {
+	// If term of peer is greater than go back to follower
 	// and update current term to the peer's term.
-	if vote.Term > c.fromStableStore(keyCurrentTerm) {
-		c.logger.Println("Demoting since peer's term is greater than current term")
-		c.setStableStore(keyCurrentTerm, vote.Term)
-		c.setState(Follower)
+	if vote.Term > r.fromStableStore(keyCurrentTerm) {
+		r.logger.Println("Demoting since peer's term is greater than current term")
+		r.setStableStore(keyCurrentTerm, vote.Term)
+		r.setState(Follower)
 		return
 	}
 
 	if vote.VoteGranted {
-		c.votesNeeded--
+		r.votesNeeded--
 		// Check if the total votes needed has been reached. If so
 		// then election has passed and candidate is now the leader.
-		if c.votesNeeded == 0 {
-			c.setState(Leader)
+		if r.votesNeeded == 0 {
+			r.setState(Leader)
 		}
 	}
 }

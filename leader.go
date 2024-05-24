@@ -2,206 +2,188 @@ package raft
 
 import (
 	"github.com/Mathew-Estafanous/raft/pb"
-	"sync"
-	"time"
 )
 
-type leader struct {
-	*Raft
-	heartbeat     *time.Timer
-	appendEntryCh chan appendEntryResp
-
-	indexMu    sync.Mutex
-	nextIndex  map[uint64]int64
-	matchIndex map[uint64]int64
-
-	tasks map[int64]*logTask
-}
-
-func (l *leader) getType() raftState {
-	return Leader
-}
-
-func (l *leader) runState() {
-	l.heartbeat.Reset(l.opts.HeartBeatTimout)
-	l.indexMu.Lock()
-	for k := range l.cluster.AllNodes() {
+func (r *Raft) runLeaderState() {
+	r.heartbeat.Reset(r.opts.HeartBeatTimout)
+	r.indexMu.Lock()
+	for k := range r.cluster.AllNodes() {
 		// Initialize own matchIndex with the last index that has been
 		// added to own log.
-		if k == l.id {
-			l.matchIndex[k] = l.log.LastIndex()
+		if k == r.id {
+			r.matchIndex[k] = r.log.LastIndex()
 		} else {
-			l.matchIndex[k] = -1
+			r.matchIndex[k] = -1
 		}
-		l.nextIndex[k] = l.log.LastIndex() + 1
+		r.nextIndex[k] = r.log.LastIndex() + 1
 	}
-	l.indexMu.Unlock()
+	r.indexMu.Unlock()
 
 	// Before breaking out of leader state, respond to any remaining tasks
 	// with the appropriate error.
 	defer func() {
 		var respErr error
 		select {
-		case <-l.shutdownCh:
+		case <-r.shutdownCh:
 			respErr = ErrRaftShutdown
 		default:
-			n, err := l.cluster.GetNode(l.leaderId)
+			n, err := r.cluster.GetNode(r.leaderId)
 			if err != nil {
-				l.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", l.leaderId)
+				r.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", r.leaderId)
 			}
 			respErr = NewLeaderError(n.ID, n.Addr)
 		}
 
-		for _, v := range l.tasks {
+		for _, v := range r.tasks {
 			v.respond(respErr)
 		}
 	}()
 
-	for l.getState().getType() == Leader {
+	for r.getState() == Leader {
 		select {
-		case <-l.heartbeat.C:
-			for _, n := range l.cluster.AllNodes() {
-				if n.ID != l.id {
-					go l.sendAppendReq(n, l.nextIndex[n.ID], true)
+		case <-r.heartbeat.C:
+			for _, n := range r.cluster.AllNodes() {
+				if n.ID != r.id {
+					go r.sendAppendReq(n, r.nextIndex[n.ID], true)
 				}
 			}
-			l.heartbeat.Reset(l.opts.HeartBeatTimout)
-		case ae := <-l.appendEntryCh:
+			r.heartbeat.Reset(r.opts.HeartBeatTimout)
+		case ae := <-r.appendEntryCh:
 			if ae.error != nil {
 				break
 			}
-			l.handleAppendResp(ae)
-		case lt := <-l.applyCh:
-			lt.log.Term = l.fromStableStore(keyCurrentTerm)
-			lt.log.Index = l.log.LastIndex() + 1
+			r.handleAppendResp(ae)
+		case lt := <-r.applyCh:
+			lt.log.Term = r.fromStableStore(keyCurrentTerm)
+			lt.log.Index = r.log.LastIndex() + 1
 
-			if err := l.log.AppendLogs([]*Log{lt.log}); err != nil {
-				l.logger.Printf("Failed to store new log %v.", lt.log)
+			if err := r.log.AppendLogs([]*Log{lt.log}); err != nil {
+				r.logger.Printf("Failed to store new log %v.", lt.log)
 				lt.respond(ErrFailedToStore)
 				break
 			}
 
 			// Add the logTask to a map of all the tasks currently being run.
-			l.tasks[lt.log.Index] = lt
+			r.tasks[lt.log.Index] = lt
 
-			l.indexMu.Lock()
-			l.matchIndex[l.id] += 1
-			l.indexMu.Unlock()
+			r.indexMu.Lock()
+			r.matchIndex[r.id] += 1
+			r.indexMu.Unlock()
 
 			// resetting the heartbeat time since we are going to send append entries, which
 			// would make a heartbeat unnecessary.
-			l.heartbeat.Reset(l.opts.HeartBeatTimout)
+			r.heartbeat.Reset(r.opts.HeartBeatTimout)
 
-			for _, n := range l.cluster.AllNodes() {
-				if n.ID != l.id {
-					go l.sendAppendReq(n, l.nextIndex[n.ID], false)
+			for _, n := range r.cluster.AllNodes() {
+				if n.ID != r.id {
+					go r.sendAppendReq(n, r.nextIndex[n.ID], false)
 				}
 			}
-		case <-l.snapTimer.C:
-			l.onSnapshot()
-		case <-l.shutdownCh:
+		case <-r.snapTimer.C:
+			r.onSnapshot()
+		case <-r.shutdownCh:
 			return
 		}
 	}
 }
 
-func (l *leader) sendAppendReq(n Node, nextIdx int64, isHeartbeat bool) {
-	l.indexMu.Lock()
+func (r *Raft) sendAppendReq(n Node, nextIdx int64, isHeartbeat bool) {
+	r.indexMu.Lock()
 	prevIndex := nextIdx - 1
 	var prevTerm uint64
 	if prevIndex <= -1 {
 		prevTerm = 0
 	} else {
-		log, err := l.log.GetLog(prevIndex)
+		log, err := r.log.GetLog(prevIndex)
 		if err != nil {
-			l.logger.Printf("Failed to get log %v from log store", prevIndex)
+			r.logger.Printf("Failed to get log %v from log store", prevIndex)
 			return
 		}
 		prevTerm = log.Term
 	}
 
-	if !isHeartbeat || nextIdx <= l.log.LastIndex() {
+	if !isHeartbeat || nextIdx <= r.log.LastIndex() {
 		nextIdx++
 	}
-	l.indexMu.Unlock()
-	logs, err := l.log.AllLogs()
+	r.indexMu.Unlock()
+	logs, err := r.log.AllLogs()
 	if err != nil {
-		l.logger.Printf("Failed to get all logs from store.")
+		r.logger.Printf("Failed to get all logs from store.")
 		return
 	}
 	// must offset to 0th index of the log slice. Use the index of the 0th log
 	// as the base of the offset.
 	idxOffset := logs[0].Index
-	matchIndex := max(0, l.matchIndex[n.ID]+1-idxOffset)
+	matchIndex := max(0, r.matchIndex[n.ID]+1-idxOffset)
 	nextIndex := max(0, nextIdx-idxOffset)
 	logs = logs[matchIndex:nextIndex]
 
-	l.mu.Lock()
+	r.mu.Lock()
 	req := &pb.AppendEntriesRequest{
-		Term:         l.fromStableStore(keyCurrentTerm),
-		LeaderId:     l.id,
-		LeaderCommit: l.commitIndex,
+		Term:         r.fromStableStore(keyCurrentTerm),
+		LeaderId:     r.id,
+		LeaderCommit: r.commitIndex,
 		PrevLogIndex: prevIndex,
 		PrevLogTerm:  prevTerm,
 		Entries:      logsToEntries(logs),
 	}
-	l.mu.Unlock()
+	r.mu.Unlock()
 
-	r := l.sendRPC(req, n)
-	l.appendEntryCh <- appendEntryResp{r, n.ID}
+	resp := r.sendRPC(req, n)
+	r.appendEntryCh <- appendEntryResp{resp, n.ID}
 }
 
-func (l *leader) handleAppendResp(ae appendEntryResp) {
-	r := ae.resp.(*pb.AppendEntriesResponse)
-	if r.Term > l.fromStableStore(keyCurrentTerm) {
-		l.setState(Follower)
-		l.setStableStore(keyCurrentTerm, r.Term)
-		l.setStableStore(keyVotedFor, 0)
+func (r *Raft) handleAppendResp(ae appendEntryResp) {
+	resp := ae.resp.(*pb.AppendEntriesResponse)
+	if resp.Term > r.fromStableStore(keyCurrentTerm) {
+		r.setState(Follower)
+		r.setStableStore(keyCurrentTerm, resp.Term)
+		r.setStableStore(keyVotedFor, 0)
 		return
 	}
 
-	l.indexMu.Lock()
-	defer l.indexMu.Unlock()
-	if r.Success {
-		l.matchIndex[ae.nodeId] = l.nextIndex[ae.nodeId] - 1
-		l.nextIndex[ae.nodeId] = min(l.log.LastIndex()+1, l.nextIndex[ae.nodeId]+1)
+	r.indexMu.Lock()
+	defer r.indexMu.Unlock()
+	if resp.Success {
+		r.matchIndex[ae.nodeId] = r.nextIndex[ae.nodeId] - 1
+		r.nextIndex[ae.nodeId] = min(r.log.LastIndex()+1, r.nextIndex[ae.nodeId]+1)
 	} else {
-		l.nextIndex[ae.nodeId] -= 1
+		r.nextIndex[ae.nodeId] -= 1
 	}
 	// Check if a majority of nodes in the raft Cluster have matched their logs
 	// at index N. If most have replicated the log then we can consider logs up to
 	// index N to be committed.
-	for N := l.log.LastIndex(); N > l.commitIndex; N-- {
-		if yes := l.majorityMatch(N); yes {
-			l.setCommitIndex(N)
-			l.mu.Lock()
+	for N := r.log.LastIndex(); N > r.commitIndex; N-- {
+		if yes := r.majorityMatch(N); yes {
+			r.setCommitIndex(N)
+			r.mu.Lock()
 			// apply the new committed logs to the FSM.
-			l.applyLogs()
-			l.mu.Unlock()
+			r.applyLogs()
+			r.mu.Unlock()
 			break
 		}
 	}
 }
 
-func (l *leader) setCommitIndex(comIdx int64) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for i := l.commitIndex + 1; i <= comIdx; i++ {
-		t, ok := l.tasks[i]
+func (r *Raft) setCommitIndex(comIdx int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := r.commitIndex + 1; i <= comIdx; i++ {
+		t, ok := r.tasks[i]
 		if !ok {
 			continue
 		}
 		t.respond(nil)
-		delete(l.tasks, i)
+		delete(r.tasks, i)
 	}
-	l.logger.Printf("Update Commit Index: From %v -> %v", l.commitIndex, comIdx)
-	l.commitIndex = comIdx
+	r.logger.Printf("Update Commit Index: From %v -> %v", r.commitIndex, comIdx)
+	r.commitIndex = comIdx
 }
 
-func (l *leader) majorityMatch(N int64) bool {
-	majority := l.cluster.Quorum()
+func (r *Raft) majorityMatch(N int64) bool {
+	majority := r.cluster.Quorum()
 	matchCount := 0
-	for _, v := range l.matchIndex {
+	for _, v := range r.matchIndex {
 		if v == N {
 			matchCount++
 		}

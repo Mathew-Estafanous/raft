@@ -119,7 +119,7 @@ func createMemStore(profile int) *raft.InMemStore {
 			},
 		}
 		term = 2
-	} else if profile == 3 {
+	} else if profile >= 3 {
 		logs = []*raft.Log{
 			{
 				Type:  raft.Entry,

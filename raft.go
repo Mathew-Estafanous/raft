@@ -68,11 +68,6 @@ func (l *LeaderError) Error() string {
 	return fmt.Sprintf("This node is not a leader. Leader's ID is %v", l.LeaderId)
 }
 
-type state interface {
-	runState()
-	getType() raftState
-}
-
 // Options defines required constants that the raft will use while running.
 //
 // This library provides about some predefined options to use instead of defining
@@ -112,7 +107,7 @@ type Raft struct {
 	fsm     FSM
 
 	leaderId uint64
-	state    state
+	state    raftState
 
 	// Persistent state of the raft.
 	log    LogStore
@@ -125,6 +120,19 @@ type Raft struct {
 	shutdownCh chan bool
 	fsmCh      chan Task
 	applyCh    chan *logTask
+
+	// Candidate state variables
+	electionTimer *time.Timer
+	votesNeeded   int
+	voteCh        chan rpcResp
+
+	// Leader state variables
+	heartbeat     *time.Timer
+	appendEntryCh chan appendEntryResp
+	indexMu       sync.Mutex
+	nextIndex     map[uint64]int64
+	matchIndex    map[uint64]int64
+	tasks         map[int64]*logTask
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
@@ -149,7 +157,7 @@ func New(c Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr
 		fsmCh:       make(chan Task, 5),
 		applyCh:     make(chan *logTask, 5),
 	}
-	r.state = &follower{Raft: r}
+	r.state = Follower
 	return r, nil
 }
 
@@ -221,51 +229,54 @@ func (r *Raft) run() {
 			// Raft has shutdown and should no-longer run
 			return
 		default:
-			r.state.runState()
+			switch r.state {
+			case Follower:
+				r.runFollowerState()
+			case Candidate:
+				r.runCandidateState()
+			case Leader:
+				r.runLeaderState()
+			}
 		}
 	}
 }
 
-func (r *Raft) setState(s raftState) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.state.getType() == s {
-		return
-	}
-
-	r.logger.Printf("Changing state from %c -> %c", r.state.getType(), s)
-	switch s {
-	case Follower:
-		r.state = &follower{Raft: r}
-	case Candidate:
-		r.state = &candidate{
-			Raft:          r,
-			electionTimer: time.NewTimer(1 * time.Hour),
-		}
-	case Leader:
-		r.state = &leader{
-			Raft:          r,
-			heartbeat:     time.NewTimer(1 * time.Hour),
-			appendEntryCh: make(chan appendEntryResp, len(r.cluster.AllNodes())),
-			nextIndex:     make(map[uint64]int64),
-			matchIndex:    make(map[uint64]int64),
-			tasks:         make(map[int64]*logTask),
-		}
-	default:
-		log.Fatalf("[BUG] Provided state type %c is not valid!", s)
-	}
-}
-
-func (r *Raft) getState() state {
+func (r *Raft) getState() raftState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.state
 }
 
+func (r *Raft) setState(s raftState) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.state == s {
+		return
+	}
+
+	r.logger.Printf("Changing state from %c -> %c", r.state, s)
+	switch s {
+	case Follower:
+		r.state = Follower
+	case Candidate:
+		r.state = Candidate
+		r.electionTimer = time.NewTimer(1 * time.Hour)
+	case Leader:
+		r.state = Leader
+		r.heartbeat = time.NewTimer(r.opts.HeartBeatTimout)
+		r.appendEntryCh = make(chan appendEntryResp, len(r.cluster.AllNodes()))
+		r.nextIndex = make(map[uint64]int64)
+		r.matchIndex = make(map[uint64]int64)
+		r.tasks = make(map[int64]*logTask)
+	default:
+		log.Fatalf("[BUG] Provided state type %c is not valid!", s)
+	}
+}
+
 func (r *Raft) randElectTime() time.Duration {
-	max := int64(r.opts.MaxElectionTimout)
-	min := int64(r.opts.MinElectionTimeout)
-	return time.Duration(rand.Int63n(max-min) + min)
+	maxV := int64(r.opts.MaxElectionTimout)
+	minV := int64(r.opts.MinElectionTimeout)
+	return time.Duration(rand.Int63n(maxV-minV) + minV)
 }
 
 // fromStableStore will fetch data related to the given key from the stable store.
