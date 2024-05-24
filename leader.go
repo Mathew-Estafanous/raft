@@ -29,7 +29,7 @@ func (r *Raft) runLeaderState() {
 		default:
 			n, err := r.cluster.GetNode(r.leaderId)
 			if err != nil {
-				r.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", r.leaderId)
+				r.logger.Printf("[BUG] Couldn't find a leader with ID %v", r.leaderId)
 			}
 			respErr = NewLeaderError(n.ID, n.Addr)
 		}
@@ -111,12 +111,19 @@ func (r *Raft) sendAppendReq(n Node, nextIdx int64, isHeartbeat bool) {
 		r.logger.Printf("Failed to get all logs from store.")
 		return
 	}
-	// must offset to 0th index of the log slice. Use the index of the 0th log
-	// as the base of the offset.
-	idxOffset := logs[0].Index
+	var idxOffset int64
+	if len(logs) > 0 {
+		// must offset to 0th index of the log slice. Use the index of the 0th log
+		// as the base of the offset.
+		idxOffset = logs[0].Index
+	}
 	matchIndex := max(0, r.matchIndex[n.ID]+1-idxOffset)
 	nextIndex := max(0, nextIdx-idxOffset)
-	logs = logs[matchIndex:nextIndex]
+	if matchIndex > nextIndex {
+		logs = logs[nextIndex-1 : nextIndex]
+	} else {
+		logs = logs[matchIndex:nextIndex]
+	}
 
 	r.mu.Lock()
 	req := &pb.AppendEntriesRequest{

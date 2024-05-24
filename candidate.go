@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"github.com/Mathew-Estafanous/raft/pb"
 )
 
@@ -26,11 +27,7 @@ func (r *Raft) runCandidateState() {
 
 			r.handleVoteResponse(vote)
 		case t := <-r.applyCh:
-			n, err := r.cluster.GetNode(r.leaderId)
-			if err != nil {
-				r.logger.Fatalf("[BUG] Couldn't find a leader with ID %v", r.leaderId)
-			}
-			t.respond(NewLeaderError(n.ID, n.Addr))
+			t.respond(fmt.Errorf("this node is not a leader"))
 		case <-r.shutdownCh:
 			return
 		}
