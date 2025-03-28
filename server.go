@@ -45,13 +45,6 @@ type rpcResp struct {
 	error error
 }
 
-func toRPCResponse(r interface{}, err error) rpcResp {
-	return rpcResp{
-		resp:  r,
-		error: err,
-	}
-}
-
 type gRPCRaftServer struct {
 	pb.UnimplementedRaftServer
 	r requestHandler

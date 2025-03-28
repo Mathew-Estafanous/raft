@@ -10,7 +10,10 @@ import (
 func sendRPC(req interface{}, target Node) rpcResp {
 	conn, err := grpc.Dial(target.Addr, grpc.WithInsecure())
 	if err != nil {
-		return toRPCResponse(nil, err)
+		return rpcResp{
+			resp:  nil,
+			error: err,
+		}
 	}
 
 	defer func() {
@@ -30,5 +33,9 @@ func sendRPC(req interface{}, target Node) rpcResp {
 	default:
 		log.Fatalf("[BUG] Could not determine RPC request of %v", req)
 	}
-	return toRPCResponse(res, err)
+
+	return rpcResp{
+		resp:  res,
+		error: nil,
+	}
 }
