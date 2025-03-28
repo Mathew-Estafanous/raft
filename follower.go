@@ -20,7 +20,7 @@ func (r *Raft) runFollowerState() {
 				r.logger.Println("[BUG] Couldn't find a leader with ID %v.", r.leaderId)
 			}
 
-			resp := r.sendRPC(&pb.ApplyRequest{
+			resp := sendRPC(&pb.ApplyRequest{
 				Command: t.log.Cmd,
 			}, n)
 			if resp.error != nil {

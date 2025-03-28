@@ -136,7 +136,7 @@ func (r *Raft) sendAppendReq(n Node, nextIdx int64, isHeartbeat bool) {
 	}
 	r.mu.Unlock()
 
-	resp := r.sendRPC(req, n)
+	resp := sendRPC(req, n)
 	r.appendEntryCh <- appendEntryResp{resp, n.ID}
 }
 

@@ -7,8 +7,14 @@ import (
 	"net"
 )
 
+type requestHandler interface {
+	onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse
+	onRequestVote(req *pb.VoteRequest) *pb.VoteResponse
+	onForwardApplyRequest(req *pb.ApplyRequest) *pb.ApplyResponse
+}
+
 type server struct {
-	r   *Raft
+	r   requestHandler
 	lis net.Listener
 	rpc *grpc.Server
 }
@@ -48,29 +54,20 @@ func toRPCResponse(r interface{}, err error) rpcResp {
 
 type gRPCRaftServer struct {
 	pb.UnimplementedRaftServer
-	r *Raft
+	r requestHandler
 }
 
 func (g gRPCRaftServer) ForwardApply(_ context.Context, request *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-	r := g.r.handleRPC(request)
-	if r.error != nil {
-		return nil, r.error
-	}
-	return r.resp.(*pb.ApplyResponse), nil
+	resp := g.r.onForwardApplyRequest(request)
+	return resp, nil
 }
 
 func (g gRPCRaftServer) RequestVote(_ context.Context, request *pb.VoteRequest) (*pb.VoteResponse, error) {
-	r := g.r.handleRPC(request)
-	if r.error != nil {
-		return nil, r.error
-	}
-	return r.resp.(*pb.VoteResponse), nil
+	resp := g.r.onRequestVote(request)
+	return resp, nil
 }
 
 func (g gRPCRaftServer) AppendEntry(_ context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-	r := g.r.handleRPC(request)
-	if r.error != nil {
-		return nil, r.error
-	}
-	return r.resp.(*pb.AppendEntriesResponse), nil
+	resp := g.r.onAppendEntry(request)
+	return resp, nil
 }
