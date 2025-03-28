@@ -27,7 +27,7 @@ func (r *Raft) runCandidateState() {
 
 			r.handleVoteResponse(vote)
 		case t := <-r.applyCh:
-			t.respond(fmt.Errorf("this node is not a leader"))
+			t.respond(fmt.Errorf("no leader assigned for term, try again later"))
 		case <-r.shutdownCh:
 			return
 		}
