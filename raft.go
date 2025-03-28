@@ -90,7 +90,7 @@ type Options struct {
 	LogThreshold uint64
 }
 
-// Raft represents a node within the entire raft static. It contains the core logic
+// Raft represents a node within the entire raft cluster. It contains the core logic
 // of the consensus algorithm such as keeping track of leaders, replicated logs and
 // other important state.
 type Raft struct {
@@ -448,6 +448,19 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 
 	resp.Success = true
 	return resp
+}
+
+func (r *Raft) onForwardApplyRequest(req *pb.ApplyRequest) *pb.ApplyResponse {
+	task := r.Apply(req.Command)
+	if err := task.Error(); err != nil {
+		return &pb.ApplyResponse{
+			Result: pb.ApplyResult_Failed,
+		}
+	}
+
+	return &pb.ApplyResponse{
+		Result: pb.ApplyResult_Committed,
+	}
 }
 
 // applyLogs will apply the newly committed logs to the FSM. The logs that

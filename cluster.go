@@ -105,8 +105,6 @@ type DynamicCluster struct {
 	cl     *StaticCluster
 	member *memlist.Member
 	logger *log.Logger
-
-	mu sync.Mutex
 }
 
 func NewDynamicCluster(port uint16, raftNode Node) (*DynamicCluster, error) {
@@ -120,6 +118,7 @@ func NewDynamicCluster(port uint16, raftNode Node) (*DynamicCluster, error) {
 	config.BindPort = port
 	config.EventListener = cluster
 	config.MetaData = raftNode
+
 	member, err := memlist.Create(config)
 	if err != nil {
 		return nil, err

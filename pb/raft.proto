@@ -36,7 +36,21 @@ message AppendEntriesResponse {
   bool success = 3;
 }
 
+enum ApplyResult {
+  Committed = 0;
+  Failed = 1;
+}
+
+message ApplyRequest {
+  bytes command = 1;
+}
+
+message ApplyResponse {
+  ApplyResult result = 1;
+}
+
 service Raft {
   rpc RequestVote(VoteRequest) returns (VoteResponse) {}
   rpc AppendEntry(AppendEntriesRequest) returns (AppendEntriesResponse) {}
+  rpc ForwardApply(ApplyRequest) returns (ApplyResponse) {}
 }

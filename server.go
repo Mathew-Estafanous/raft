@@ -47,7 +47,16 @@ func toRPCResponse(r interface{}, err error) rpcResp {
 }
 
 type gRPCRaftServer struct {
+	pb.UnimplementedRaftServer
 	r *Raft
+}
+
+func (g gRPCRaftServer) ForwardApply(_ context.Context, request *pb.ApplyRequest) (*pb.ApplyResponse, error) {
+	r := g.r.handleRPC(request)
+	if r.error != nil {
+		return nil, r.error
+	}
+	return r.resp.(*pb.ApplyResponse), nil
 }
 
 func (g gRPCRaftServer) RequestVote(_ context.Context, request *pb.VoteRequest) (*pb.VoteResponse, error) {

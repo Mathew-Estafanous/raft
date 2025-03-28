@@ -1,5 +1,10 @@
 package raft
 
+import (
+	"fmt"
+	"github.com/Mathew-Estafanous/raft/pb"
+)
+
 func (r *Raft) runFollowerState() {
 	r.timer.Reset(r.randElectTime())
 	for r.getState() == Follower {
@@ -14,7 +19,28 @@ func (r *Raft) runFollowerState() {
 			if err != nil {
 				r.logger.Println("[BUG] Couldn't find a leader with ID %v.", r.leaderId)
 			}
-			t.respond(NewLeaderError(n.ID, n.Addr))
+
+			resp := r.sendRPC(&pb.ApplyRequest{
+				Command: t.log.Cmd,
+			}, n)
+			if resp.error != nil {
+				r.logger.Printf("Failed to forward apply request to leader: %v", resp.error)
+				t.respond(fmt.Errorf("couldn't apply request: %v", resp.error))
+				return
+			}
+			applyResp, ok := resp.resp.(*pb.ApplyResponse)
+			if !ok {
+				r.logger.Println("[BUG] Couldn't assert apply response type.")
+				t.respond(ErrFailedToStore)
+				return
+			}
+
+			switch applyResp.Result {
+			case pb.ApplyResult_Committed:
+				t.respond(nil)
+			case pb.ApplyResult_Failed:
+				t.respond(ErrFailedToStore)
+			}
 		case <-r.snapTimer.C:
 			r.onSnapshot()
 		case <-r.shutdownCh:

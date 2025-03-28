@@ -22,11 +22,14 @@ func (r *Raft) sendRPC(req interface{}, target Node) rpcResp {
 	c := pb.NewRaftClient(conn)
 
 	var res interface{}
+	ctx := context.Background()
 	switch req := req.(type) {
 	case *pb.VoteRequest:
-		res, err = c.RequestVote(context.Background(), req)
+		res, err = c.RequestVote(ctx, req)
 	case *pb.AppendEntriesRequest:
-		res, err = c.AppendEntry(context.Background(), req)
+		res, err = c.AppendEntry(ctx, req)
+	case *pb.ApplyRequest:
+		res, err = c.ForwardApply(ctx, req)
 	default:
 		log.Fatalf("[BUG] Could not determine RPC request of %v", req)
 	}
@@ -42,6 +45,8 @@ func (r *Raft) handleRPC(req interface{}) rpcResp {
 		resp = r.onRequestVote(req)
 	case *pb.AppendEntriesRequest:
 		resp = r.onAppendEntry(req)
+	case *pb.ApplyRequest:
+		resp = r.onForwardApplyRequest(req)
 	default:
 		rpcErr = fmt.Errorf("unable to response to rpcResp request")
 	}
