@@ -6,8 +6,10 @@
 package main
 
 import (
+	"fmt"
 	"github.com/Mathew-Estafanous/raft"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -24,9 +26,14 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	raftPort := ":" + strconv.Itoa(6000+id)
 
-	c, err := raft.NewDynamicCluster(uint16(memPort), raft.Node{ID: uint64(id), Addr: raftPort})
+	ip := getLocalIP()
+	if ip == "" {
+		ip = "127.0.0.1"
+	}
+	raftAddr := fmt.Sprintf("%v:%v", ip, strconv.Itoa(6000+id))
+
+	c, err := raft.NewDynamicCluster(ip, uint16(memPort), raft.Node{ID: uint64(id), Addr: raftAddr})
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -34,16 +41,16 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	if len(os.Args) >= 4 {
-		if err = c.Join(":" + os.Args[3]); err != nil {
+		if err = c.Join(os.Args[3]); err != nil {
 			log.Fatalln(err)
 		}
 	}
-	go makeAndRunKV(uint64(id), c, createMemStore(id), &wg)
+	go makeAndRunKV(raftAddr, uint64(id), c, createMemStore(id), &wg)
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
 }
 
-func makeAndRunKV(id uint64, c raft.Cluster, mem *raft.InMemStore, wg *sync.WaitGroup) {
+func makeAndRunKV(raftAddr string, id uint64, c raft.Cluster, mem *raft.InMemStore, wg *sync.WaitGroup) {
 	kv := NewStore()
 	r, err := raft.New(c, id, raft.SlowOpts, kv, mem, mem)
 	kv.r = r
@@ -51,9 +58,8 @@ func makeAndRunKV(id uint64, c raft.Cluster, mem *raft.InMemStore, wg *sync.Wait
 		log.Fatalln(err)
 	}
 
-	raftPort := ":" + strconv.Itoa(int(6000+id))
 	go func() {
-		if err := r.ListenAndServe(raftPort); err != nil {
+		if err := r.ListenAndServe(raftAddr); err != nil {
 			log.Println(err)
 		}
 	}()
@@ -133,4 +139,20 @@ func createMemStore(profile int) *raft.InMemStore {
 	mem.AppendLogs(logs)
 	mem.Set([]byte("currentTerm"), []byte(strconv.Itoa(term)))
 	return mem
+}
+
+func getLocalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
+			}
+		}
+	}
+	return ""
 }

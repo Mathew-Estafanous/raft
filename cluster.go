@@ -107,7 +107,7 @@ type DynamicCluster struct {
 	logger *log.Logger
 }
 
-func NewDynamicCluster(port uint16, raftNode Node) (*DynamicCluster, error) {
+func NewDynamicCluster(addr string, port uint16, raftNode Node) (*DynamicCluster, error) {
 	gob.Register(Node{})
 	cluster := &DynamicCluster{
 		cl:     NewCluster(),
@@ -115,6 +115,7 @@ func NewDynamicCluster(port uint16, raftNode Node) (*DynamicCluster, error) {
 	}
 	config := memlist.DefaultLocalConfig()
 	config.Name = "M#" + strconv.Itoa(int(port))
+	config.BindAddr = addr
 	config.BindPort = port
 	config.EventListener = cluster
 	config.MetaData = raftNode
