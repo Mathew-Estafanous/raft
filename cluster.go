@@ -101,6 +101,10 @@ func (c *StaticCluster) removeNode(id uint64) (Node, error) {
 	return n, nil
 }
 
+// DynamicCluster provides a dynamic membership solution for a Raft cluster.
+// It internally uses the memlist library to handle node discovery, failure detection,
+// and membership changes. DynamicCluster allows  nodes to join and leave the cluster at runtime,
+// automatically propagating membership information to other nodes in the cluster.
 type DynamicCluster struct {
 	cl     *StaticCluster
 	member *memlist.Member
