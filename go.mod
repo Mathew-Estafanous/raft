@@ -5,8 +5,8 @@ go 1.23.0
 toolchain go1.23.4
 
 require (
-	github.com/Mathew-Estafanous/memlist v0.1.2
-	google.golang.org/grpc v1.71.0
+	github.com/Mathew-Estafanous/memlist v0.2.1
+	google.golang.org/grpc v1.71.1
 	google.golang.org/protobuf v1.36.6
 )
 
