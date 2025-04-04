@@ -86,7 +86,7 @@ type Options struct {
 	SnapshotTimer time.Duration
 
 	// LogThreshold represents the total number of log entries that should be reached
-	// before log compaction (snapshot) is triggered.
+	// before log compaction (snapshot) is triggered. A threshold of 0 means no snapshot creation.
 	LogThreshold uint64
 }
 
@@ -511,8 +511,8 @@ func (r *Raft) onSnapshot() {
 		return
 	}
 
-	// don't make a snapshot if the length of the logs is below the set log threshold.
-	if len(logs) < int(r.opts.LogThreshold) {
+	// Don't make a snapshot if the length of the logs is below the set threshold or equal to 0.
+	if len(logs) < int(r.opts.LogThreshold) || r.opts.LogThreshold == 0 {
 		return
 	}
 

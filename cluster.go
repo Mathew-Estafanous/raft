@@ -162,12 +162,11 @@ func (c *DynamicCluster) OnMembershipChange(peer memlist.Node) {
 			return
 		}
 	case memlist.Left, memlist.Dead:
-		node, err := c.cl.removeNode(node.ID)
+		_, err := c.cl.removeNode(node.ID)
 		if err != nil {
 			c.logger.Printf("Failed to remove node: %v", err)
 			return
 		}
-		c.logger.Printf("Removed a node with ID: %d and Address: %v", node.ID, node.Addr)
 	}
 }
 

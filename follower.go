@@ -17,7 +17,7 @@ func (r *Raft) runFollowerState() {
 		case t := <-r.applyCh:
 			n, err := r.cluster.GetNode(r.leaderId)
 			if err != nil {
-				r.logger.Println("[BUG] Couldn't find a leader with ID %v.", r.leaderId)
+				r.logger.Println("Couldn't get leader %v: %v", r.leaderId, err)
 			}
 
 			resp := sendRPC(&pb.ApplyRequest{
