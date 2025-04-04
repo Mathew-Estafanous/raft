@@ -227,7 +227,7 @@ func (r *Raft) run() {
 			// Raft has shutdown and should no-longer run
 			return
 		default:
-			switch r.state {
+			switch r.getState() {
 			case Follower:
 				r.runFollowerState()
 			case Candidate:

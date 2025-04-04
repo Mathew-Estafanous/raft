@@ -36,6 +36,6 @@ func sendRPC(req interface{}, target Node) rpcResp {
 
 	return rpcResp{
 		resp:  res,
-		error: nil,
+		error: err,
 	}
 }
