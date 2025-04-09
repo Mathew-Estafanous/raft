@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"github.com/Mathew-Estafanous/raft"
+	"github.com/Mathew-Estafanous/raft/store"
 	"log"
 	"net"
 	"net/http"
@@ -45,14 +46,19 @@ func main() {
 			log.Fatalln(err)
 		}
 	}
-	go makeAndRunKV(raftAddr, uint64(id), c, createMemStore(id), &wg)
+
+	raftStore, err := store.NewBoltStore(fmt.Sprintf(".data/raft%v.db", id))
+	if err != nil {
+		log.Fatalln(err)
+	}
+	go makeAndRunKV(raftAddr, uint64(id), c, raftStore, &wg)
 	wg.Wait()
 	log.Println("Raft cluster simulation shutdown.")
 }
 
-func makeAndRunKV(raftAddr string, id uint64, c raft.Cluster, mem *raft.InMemStore, wg *sync.WaitGroup) {
+func makeAndRunKV(raftAddr string, id uint64, c raft.Cluster, raftStore *store.BoltStore, wg *sync.WaitGroup) {
 	kv := NewStore()
-	r, err := raft.New(c, id, raft.SlowOpts, kv, mem, mem)
+	r, err := raft.New(c, id, raft.SlowOpts, kv, raftStore, raftStore)
 	kv.r = r
 	if err != nil {
 		log.Fatalln(err)
@@ -69,76 +75,6 @@ func makeAndRunKV(raftAddr string, id uint64, c raft.Cluster, mem *raft.InMemSto
 		log.Println(err)
 	}
 	wg.Done()
-}
-
-func createMemStore(profile int) *raft.InMemStore {
-	mem := raft.NewMemStore()
-	logs := make([]*raft.Log, 0)
-	var term int
-	if profile == 1 {
-		logs = []*raft.Log{
-			{
-				Type:  raft.Entry,
-				Index: 0,
-				Term:  1,
-				Cmd:   []byte("my friends"),
-			},
-			{
-				Type:  raft.Entry,
-				Index: 1,
-				Term:  1,
-				Cmd:   []byte("my bro"),
-			},
-			{
-				Type:  raft.Entry,
-				Index: 2,
-				Term:  2,
-				Cmd:   []byte("mat amazing"),
-			},
-		}
-		term = 2
-	} else if profile == 2 {
-		logs = []*raft.Log{
-			{
-				Type:  raft.Entry,
-				Index: 0,
-				Term:  1,
-				Cmd:   []byte("my friends"),
-			},
-			{
-				Type:  raft.Entry,
-				Index: 1,
-				Term:  1,
-				Cmd:   []byte("my bro"),
-			},
-			{
-				Type:  raft.Entry,
-				Index: 2,
-				Term:  2,
-				Cmd:   []byte("mat amazing"),
-			},
-			{
-				Type:  raft.Entry,
-				Index: 3,
-				Term:  2,
-				Cmd:   []byte("hello world"),
-			},
-		}
-		term = 2
-	} else if profile >= 3 {
-		logs = []*raft.Log{
-			{
-				Type:  raft.Entry,
-				Index: 0,
-				Term:  1,
-				Cmd:   []byte("my friends"),
-			},
-		}
-		term = 1
-	}
-	mem.AppendLogs(logs)
-	mem.Set([]byte("currentTerm"), []byte(strconv.Itoa(term)))
-	return mem
 }
 
 func getLocalIP() string {

@@ -16,3 +16,6 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+# ignore example .data file
+example/.data
