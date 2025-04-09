@@ -2,13 +2,22 @@ package raft
 
 import (
 	"context"
+	"crypto/tls"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"log"
 )
 
-func sendRPC(req interface{}, target Node) rpcResp {
-	conn, err := grpc.Dial(target.Addr, grpc.WithInsecure())
+func sendRPC(req interface{}, target Node, config *tls.Config) rpcResp {
+	var creds credentials.TransportCredentials
+	if config == nil {
+		creds = insecure.NewCredentials()
+	} else {
+		creds = credentials.NewTLS(config)
+	}
+	conn, err := grpc.NewClient(target.Addr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return rpcResp{
 			resp:  nil,

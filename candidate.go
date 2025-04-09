@@ -54,7 +54,7 @@ func (r *Raft) sendVoteRequests() {
 
 		// Make RPC request in a separate goroutine to prevent blocking operations.
 		go func(n Node) {
-			res := sendRPC(req, n)
+			res := sendRPC(req, n, r.opts.TlsConfig)
 			r.voteCh <- res
 		}(v)
 	}
