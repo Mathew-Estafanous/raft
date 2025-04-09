@@ -2,8 +2,10 @@ package raft
 
 import (
 	"context"
+	"crypto/tls"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"net"
 )
 
@@ -19,11 +21,18 @@ type server struct {
 	rpc *grpc.Server
 }
 
-func newServer(raft *Raft, lis net.Listener) *server {
+func newServer(raft *Raft, lis net.Listener, tlsConfig *tls.Config) *server {
+	var rpcServer *grpc.Server
+	if tlsConfig != nil {
+		creds := credentials.NewTLS(tlsConfig)
+		rpcServer = grpc.NewServer(grpc.Creds(creds))
+	} else {
+		rpcServer = grpc.NewServer()
+	}
 	return &server{
 		r:   raft,
 		lis: lis,
-		rpc: grpc.NewServer(),
+		rpc: rpcServer,
 	}
 }
 

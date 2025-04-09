@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/Mathew-Estafanous/raft/pb"
@@ -88,6 +89,10 @@ type Options struct {
 	// LogThreshold represents the total number of log entries that should be reached
 	// before log compaction (snapshot) is triggered. A threshold of 0 means no snapshot creation.
 	LogThreshold uint64
+
+	// TlsConfig when given is used to encrypt communication among raft nodes. TLS is not enabled
+	// if config is left as nil.
+	TlsConfig *tls.Config
 }
 
 // Raft represents a node within the entire raft cluster. It contains the core logic
@@ -176,7 +181,7 @@ func (r *Raft) ListenAndServe(addr string) error {
 // This is a blocking operation and will only return when the raft instance has Shutdown
 // or a fatal error has occurred.
 func (r *Raft) Serve(l net.Listener) error {
-	s := newServer(r, l)
+	s := newServer(r, l, r.opts.TlsConfig)
 	defer s.shutdown()
 	r.logger.Printf("Starting raft on %v", l.Addr().String())
 	go func() {

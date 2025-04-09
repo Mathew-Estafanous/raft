@@ -22,7 +22,7 @@ func (r *Raft) runFollowerState() {
 
 			resp := sendRPC(&pb.ApplyRequest{
 				Command: t.log.Cmd,
-			}, n)
+			}, n, r.opts.TlsConfig)
 			if resp.error != nil {
 				r.logger.Printf("Failed to forward apply request to leader: %v", resp.error)
 				t.respond(fmt.Errorf("couldn't apply request: %v", resp.error))
