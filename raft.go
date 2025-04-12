@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Mathew-Estafanous/raft/pb"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -113,8 +114,9 @@ type Raft struct {
 	state    raftState
 
 	// Persistent state of the raft.
-	log    LogStore
-	stable StableStore
+	log           LogStore
+	stable        StableStore
+	snapshotStore SnapshotStore
 
 	// Volatile state of the raft.
 	commitIndex int64
@@ -139,26 +141,27 @@ type Raft struct {
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
-func New(c Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
+func New(c Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore, snapStr SnapshotStore) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
 	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
 	r := &Raft{
-		id:          id,
-		timer:       time.NewTimer(1 * time.Hour),
-		snapTimer:   time.NewTimer(opts.SnapshotTimer),
-		logger:      logger,
-		cluster:     c,
-		opts:        opts,
-		fsm:         fsm,
-		log:         logStr,
-		stable:      stableStr,
-		commitIndex: -1,
-		lastApplied: -1,
-		shutdownCh:  make(chan bool),
-		fsmCh:       make(chan Task, 5),
-		applyCh:     make(chan *logTask, 5),
+		id:            id,
+		timer:         time.NewTimer(1 * time.Hour),
+		snapTimer:     time.NewTimer(opts.SnapshotTimer),
+		logger:        logger,
+		cluster:       c,
+		opts:          opts,
+		fsm:           fsm,
+		log:           logStr,
+		stable:        stableStr,
+		snapshotStore: snapStr,
+		commitIndex:   -1,
+		lastApplied:   -1,
+		shutdownCh:    make(chan bool),
+		fsmCh:         make(chan Task, 5),
+		applyCh:       make(chan *logTask, 5),
 	}
 	r.state = Follower
 	return r, nil
@@ -480,8 +483,30 @@ func (r *Raft) applyLogs() {
 
 		switch l.Type {
 		case Snapshot:
+			var snapshotData []byte
+			snapshotID := string(l.Cmd)
+			r.logger.Printf("Attempting to restore snapshot with ID: %s", snapshotID)
+
+			// Retrieve the snapshot from the store
+			snapshot, err := r.snapshotStore.Open(snapshotID)
+			if err == nil {
+				// Read the snapshot data
+				defer snapshot.Reader.Close()
+				snapshotData, err = io.ReadAll(snapshot.Reader)
+				// TODO: Change this
+				if err != nil {
+					r.logger.Printf("Failed to read snapshot data: %v", err)
+					// Fall back to using the command data
+					snapshotData = l.Cmd
+				}
+			} else {
+				r.logger.Printf("Failed to open snapshot: %v, falling back to command data", err)
+				// Fall back to using the command data
+				snapshotData = l.Cmd
+			}
+
 			restore := &fsmRestore{
-				cmd:       l.Cmd,
+				cmd:       snapshotData,
 				errorTask: errorTask{errCh: make(chan error)},
 			}
 			i = l.Index
@@ -532,24 +557,55 @@ func (r *Raft) onSnapshot() {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if err = r.log.DeleteRange(logs[0].Index, logs[len(logs)-1].Index); err != nil {
-		r.logger.Fatalln(err)
+
+	// Get the current term and last applied index for the snapshot
+	currentTerm := r.fromStableStore(keyCurrentTerm)
+	lastApplied := r.lastApplied
+
+	// Create a new snapshot in the snapshot store
+	sink, err := r.snapshotStore.Create(lastApplied, currentTerm, int64(len(snapTask.state)))
+	if err != nil {
+		r.logger.Printf("Failed to create snapshot: %v", err)
+		return
 	}
 
-	// Use the FSM state in a snapshot log that is added to the Log persistence storage.
+	// Write the snapshot data
+	if _, err := sink.Write(snapTask.state); err != nil {
+		r.logger.Printf("Failed to write snapshot: %v", err)
+		return
+	}
+
+	// Finalize the snapshot
+	if err := sink.Close(); err != nil {
+		r.logger.Printf("Failed to close snapshot: %v", err)
+		return
+	}
+
+	r.logger.Printf("Created snapshot up to index %d", lastApplied)
+
+	// Delete logs up to the snapshot point (inclusive)
+	// Find the index in logs that corresponds to lastApplied
+	var minLogIndex int64
+	if len(logs) > 0 {
+		minLogIndex = logs[0].Index
+	}
+
+	if len(logs) > 0 && lastApplied >= minLogIndex {
+		if err = r.log.DeleteRange(minLogIndex, lastApplied); err != nil {
+			r.logger.Printf("Failed to delete logs up to snapshot point: %v", err)
+			return
+		}
+	}
+
 	snapLog := &Log{
 		Type:  Snapshot,
-		Index: r.lastApplied,
-		Term:  r.fromStableStore(keyCurrentTerm),
-		Cmd:   snapTask.state,
+		Index: lastApplied,
+		Term:  currentTerm,
+		Cmd:   []byte(sink.ID()),
 	}
 	if err = r.log.AppendLogs([]*Log{snapLog}); err != nil {
-		r.logger.Fatalln(err)
-	}
-
-	idx := r.lastApplied - logs[0].Index
-	if err = r.log.AppendLogs(logs[idx+1:]); err != nil {
-		r.logger.Fatalln(err)
+		r.logger.Printf("Failed to append snapshot log: %v", err)
+		return
 	}
 
 	if logs, err := r.log.AllLogs(); err == nil {
