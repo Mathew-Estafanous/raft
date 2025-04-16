@@ -161,7 +161,7 @@ func (r *Raft) handleAppendResp(ae appendEntryResp) {
 	// at index N. If most have replicated the log then we can consider logs up to
 	// index N to be committed.
 	for N := r.log.LastIndex(); N > r.commitIndex; N-- {
-		if yes := r.majorityMatch(N); yes {
+		if yes := majorityMatch(N, r.cluster, r.matchIndex); yes {
 			r.setCommitIndex(N)
 			r.mu.Lock()
 			// apply the new committed logs to the FSM.
@@ -187,10 +187,10 @@ func (r *Raft) setCommitIndex(comIdx int64) {
 	r.commitIndex = comIdx
 }
 
-func (r *Raft) majorityMatch(N int64) bool {
-	majority := r.cluster.Quorum()
+func majorityMatch(N int64, cluster Cluster, matchIndex map[uint64]int64) bool {
+	majority := cluster.Quorum()
 	matchCount := 0
-	for _, v := range r.matchIndex {
+	for _, v := range matchIndex {
 		if v == N {
 			matchCount++
 		}

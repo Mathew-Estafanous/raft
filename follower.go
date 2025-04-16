@@ -6,7 +6,7 @@ import (
 )
 
 func (r *Raft) runFollowerState() {
-	r.timer.Reset(r.randElectTime())
+	r.timer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
 	for r.getState() == Follower {
 		select {
 		case <-r.timer.C:

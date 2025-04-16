@@ -276,12 +276,6 @@ func (r *Raft) setState(s raftState) {
 	}
 }
 
-func (r *Raft) randElectTime() time.Duration {
-	maxV := int64(r.opts.MaxElectionTimout)
-	minV := int64(r.opts.MinElectionTimeout)
-	return time.Duration(rand.Int63n(maxV-minV) + minV)
-}
-
 // fromStableStore will fetch data related to the given key from the stable store.
 // Most importantly, it assumes all data being retrieved is required and all non-nil
 // errors are fatal.
@@ -311,7 +305,7 @@ func (r *Raft) setStableStore(key []byte, val uint64) {
 }
 
 func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
-	r.timer.Reset(r.randElectTime())
+	r.timer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
 	resp := &pb.VoteResponse{
 		Term:        r.fromStableStore(keyCurrentTerm),
 		VoteGranted: false,
@@ -351,7 +345,7 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 }
 
 func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
-	r.timer.Reset(r.randElectTime())
+	r.timer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
 	resp := &pb.AppendEntriesResponse{
 		Id:      r.id,
 		Term:    r.fromStableStore(keyCurrentTerm),
@@ -555,4 +549,10 @@ func (r *Raft) onSnapshot() {
 	if logs, err := r.log.AllLogs(); err == nil {
 		r.logger.Printf("Snapshot Logs: %v", logs)
 	}
+}
+
+func randElectTime(minTimeout, maxTimeout time.Duration) time.Duration {
+	maxV := int64(maxTimeout)
+	minV := int64(minTimeout)
+	return time.Duration(rand.Int63n(maxV-minV) + minV)
 }

@@ -6,7 +6,7 @@ import (
 )
 
 func (r *Raft) runCandidateState() {
-	r.electionTimer.Reset(r.randElectTime())
+	r.electionTimer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
 	r.setStableStore(keyCurrentTerm, r.fromStableStore(keyCurrentTerm)+1)
 	r.logger.Printf("Candidate started election for term %v.", r.fromStableStore(keyCurrentTerm))
 
