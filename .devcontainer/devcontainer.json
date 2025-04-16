@@ -1,0 +1,24 @@
+{
+    "name": "raft_dev",
+    "image": "mcr.microsoft.com/devcontainers/go:1.23",
+    "customizations": {
+        "jetbrains": {
+            "settings": {
+                "com.intellij:app:EditorSettings.is_ensure_newline_at_eof": true,
+                "org.jetbrains.plugins.github:app:GithubSettings.clone_git_using_ssh": true,
+                "com.intellij:app:Vcs-Log-App-Settings.show_changes_from_parents": true
+            },
+        },
+        "vscode": {
+            "extensions": [
+                "golang.go"
+            ],
+            "settings": {
+                "go.toolsManagement.autoUpdate": true,
+                "go.useLanguageServer": true,
+                "editor.formatOnSave": true
+            }
+        }
+    },
+    "postCreateCommand": "go mod download"
+}
