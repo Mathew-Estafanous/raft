@@ -1,12 +1,12 @@
 package store
 
 import (
+	raft "github.com/Mathew-Estafanous/raft/pkg"
 	bolt "go.etcd.io/bbolt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/Mathew-Estafanous/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

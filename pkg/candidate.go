@@ -2,8 +2,8 @@ package raft
 
 import (
 	"fmt"
-	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
+	"github.com/Mathew-Estafanous/raft/pkg/cluster"
+	"github.com/Mathew-Estafanous/raft/pkg/pb"
 )
 
 func (r *Raft) runCandidateState() {

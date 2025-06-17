@@ -3,8 +3,8 @@ package raft
 import (
 	"context"
 	"crypto/tls"
-	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
+	"github.com/Mathew-Estafanous/raft/pkg/cluster"
+	"github.com/Mathew-Estafanous/raft/pkg/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
