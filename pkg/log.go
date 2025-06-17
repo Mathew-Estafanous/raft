@@ -2,7 +2,7 @@ package raft
 
 import (
 	"fmt"
-	"github.com/Mathew-Estafanous/raft/pb"
+	"github.com/Mathew-Estafanous/raft/pkg/pb"
 )
 
 type logType byte

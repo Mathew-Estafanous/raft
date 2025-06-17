@@ -1,0 +1,56 @@
+syntax="proto3";
+option go_package = "../pb";
+package pb;
+
+message VoteRequest {
+  uint64 term = 1;
+  uint64 candidateId = 2;
+  int64 lastLogIndex = 3;
+  uint64 lastLogTerm = 4;
+}
+
+message VoteResponse {
+  uint64 term = 1;
+  bool voteGranted = 2;
+}
+
+message Entry {
+  uint64 term = 1;
+  int64 index = 2;
+  bytes data = 3;
+  bytes type = 4;
+}
+
+message AppendEntriesRequest {
+  uint64 term = 1;
+  uint64 leaderId = 2;
+  int64 prevLogIndex = 3;
+  uint64 prevLogTerm = 4;
+  int64 leaderCommit = 6;
+  repeated Entry entries = 5;
+}
+
+message AppendEntriesResponse {
+  uint64 id = 1;
+  uint64 term = 2;
+  bool success = 3;
+}
+
+enum ApplyResult {
+  Committed = 0;
+  Failed = 1;
+}
+
+message ApplyRequest {
+  bytes command = 1;
+}
+
+message ApplyResponse {
+  ApplyResult result = 1;
+}
+
+service Raft {
+  rpc RequestVote(VoteRequest) returns (VoteResponse) {}
+  rpc AppendEntry(AppendEntriesRequest) returns (AppendEntriesResponse) {}
+  rpc ForwardApply(ApplyRequest) returns (ApplyResponse) {}
+}
