@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"log"
 	"math/rand"
@@ -105,7 +106,7 @@ type Raft struct {
 	logger    *log.Logger
 
 	mu      sync.Mutex
-	cluster Cluster
+	cluster cluster.Cluster
 	opts    Options
 	fsm     FSM
 
@@ -139,7 +140,7 @@ type Raft struct {
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
-func New(c Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
+func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}

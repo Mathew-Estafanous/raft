@@ -2,6 +2,7 @@ package raft
 
 import (
 	"fmt"
+	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
 )
 
@@ -53,7 +54,7 @@ func (r *Raft) sendVoteRequests() {
 		}
 
 		// Make RPC request in a separate goroutine to prevent blocking operations.
-		go func(n Node) {
+		go func(n cluster.Node) {
 			res := sendRPC(req, n, r.opts.TlsConfig)
 			r.voteCh <- res
 		}(v)

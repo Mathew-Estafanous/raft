@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
 )
 
@@ -87,7 +88,7 @@ func (r *Raft) runLeaderState() {
 	}
 }
 
-func (r *Raft) sendAppendReq(n Node, nextIdx int64, isHeartbeat bool) {
+func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	r.indexMu.Lock()
 	prevIndex := nextIdx - 1
 	var prevTerm uint64
@@ -187,7 +188,7 @@ func (r *Raft) setCommitIndex(comIdx int64) {
 	r.commitIndex = comIdx
 }
 
-func majorityMatch(N int64, cluster Cluster, matchIndex map[uint64]int64) bool {
+func majorityMatch(N int64, cluster cluster.Cluster, matchIndex map[uint64]int64) bool {
 	majority := cluster.Quorum()
 	matchCount := 0
 	for _, v := range matchIndex {

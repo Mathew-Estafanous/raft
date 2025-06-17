@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"github.com/Mathew-Estafanous/raft"
+	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/store"
 	"log"
 	"net"
@@ -34,7 +35,7 @@ func main() {
 	}
 	raftAddr := fmt.Sprintf("%v:%v", ip, strconv.Itoa(6000+id))
 
-	c, err := raft.NewDynamicCluster(ip, uint16(memPort), raft.Node{ID: uint64(id), Addr: raftAddr})
+	c, err := cluster.NewDynamicCluster(ip, uint16(memPort), cluster.Node{ID: uint64(id), Addr: raftAddr})
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -56,7 +57,7 @@ func main() {
 	log.Println("Raft cluster simulation shutdown.")
 }
 
-func makeAndRunKV(raftAddr string, id uint64, c raft.Cluster, raftStore *store.BoltStore, wg *sync.WaitGroup) {
+func makeAndRunKV(raftAddr string, id uint64, c cluster.Cluster, raftStore *store.BoltStore, wg *sync.WaitGroup) {
 	kv := NewStore()
 	r, err := raft.New(c, id, raft.SlowOpts, kv, raftStore, raftStore)
 	kv.r = r

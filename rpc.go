@@ -3,6 +3,7 @@ package raft
 import (
 	"context"
 	"crypto/tls"
+	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -10,7 +11,7 @@ import (
 	"log"
 )
 
-func sendRPC(req interface{}, target Node, config *tls.Config) rpcResp {
+func sendRPC(req interface{}, target cluster.Node, config *tls.Config) rpcResp {
 	var creds credentials.TransportCredentials
 	if config == nil {
 		creds = insecure.NewCredentials()
