@@ -17,7 +17,13 @@ func (r *Raft) runFollowerState() {
 		case t := <-r.applyCh:
 			n, err := r.cluster.GetNode(r.leaderId)
 			if err != nil {
-				r.logger.Println("Couldn't get leader %v: %v", r.leaderId, err)
+				t.respond(ErrFailedToStore)
+				break
+			}
+
+			if !r.opts.ForwardApply {
+				t.respond(NewLeaderError(n.ID, n.Addr))
+				break
 			}
 
 			resp := sendRPC(&pb.ApplyRequest{
@@ -26,13 +32,13 @@ func (r *Raft) runFollowerState() {
 			if resp.error != nil {
 				r.logger.Printf("Failed to forward apply request to leader: %v", resp.error)
 				t.respond(fmt.Errorf("couldn't apply request: %v", resp.error))
-				return
+				break
 			}
 			applyResp, ok := resp.resp.(*pb.ApplyResponse)
 			if !ok {
 				r.logger.Println("[BUG] Couldn't assert apply response type.")
 				t.respond(ErrFailedToStore)
-				return
+				break
 			}
 
 			switch applyResp.Result {

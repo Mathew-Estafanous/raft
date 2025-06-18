@@ -28,6 +28,7 @@ var (
 		HeartBeatTimout:    100 * time.Millisecond,
 		SnapshotTimer:      1 * time.Second,
 		LogThreshold:       200,
+		ForwardApply:       true,
 	}
 
 	SlowOpts = Options{
@@ -36,6 +37,7 @@ var (
 		HeartBeatTimout:    500 * time.Millisecond,
 		SnapshotTimer:      8 * time.Second,
 		LogThreshold:       5,
+		ForwardApply:       true,
 	}
 
 	keyCurrentTerm = []byte("currentTerm")
@@ -94,6 +96,11 @@ type Options struct {
 	// TlsConfig when given is used to encrypt communication among raft nodes. TLS is not enabled
 	// if config is left as nil.
 	TlsConfig *tls.Config
+
+	// ForwardApply enables follower nodes to automatically forward apply requests to the leader
+	// and response to the request without the caller needing to know who is a leader. Otherwise,
+	// the request will fail with a LeaderError.
+	ForwardApply bool
 }
 
 // Raft represents a node within the entire raft cluster. It contains the core logic
@@ -215,15 +222,26 @@ func (r *Raft) Apply(cmd []byte) Task {
 			Type: Entry,
 			Cmd:  cmd,
 		},
-		errorTask: errorTask{errCh: make(chan error)},
+		errorTask: errorTask{errCh: make(chan error, 1)},
 	}
 
 	select {
 	case <-r.shutdownCh:
 		logT.respond(ErrRaftShutdown)
+		return logT
+	default:
+		// raft is not shutdown, continue.
+	}
+
+	select {
 	case r.applyCh <- logT:
 	}
 	return logT
+}
+
+// ID of the raft node.
+func (r *Raft) ID() uint64 {
+	return r.id
 }
 
 func (r *Raft) run() {
