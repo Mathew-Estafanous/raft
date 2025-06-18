@@ -15,7 +15,7 @@ type StaticCluster struct {
 	mu sync.Mutex
 	// AllLogs the nodes within the raft Cluster. Key is a raft id.
 	Nodes  map[uint64]Node
-	logger *log.Logger
+	Logger *log.Logger
 }
 
 func (c *StaticCluster) AllNodes() map[uint64]Node {
@@ -28,7 +28,7 @@ func (c *StaticCluster) AllNodes() map[uint64]Node {
 func NewCluster() *StaticCluster {
 	return &StaticCluster{
 		Nodes:  make(map[uint64]Node),
-		logger: log.New(os.Stdout, "[Cluster]", log.LstdFlags),
+		Logger: log.New(os.Stdout, "[Cluster]", log.LstdFlags),
 	}
 }
 
@@ -64,7 +64,7 @@ func (c *StaticCluster) addNode(n Node) error {
 	if _, ok := c.Nodes[n.ID]; ok {
 		return fmt.Errorf("[Cluster] A node with ID: %d is already registered", n.ID)
 	}
-	c.logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
+	c.Logger.Printf("Added a new node with ID: %d and Address: %v", n.ID, n.Addr)
 	c.Nodes[n.ID] = n
 	return nil
 }
@@ -76,7 +76,7 @@ func (c *StaticCluster) removeNode(id uint64) (Node, error) {
 	if !ok {
 		return Node{}, fmt.Errorf("[Cluster] A node with ID: %d is not registered", id)
 	}
-	c.logger.Printf("Removed a node with ID: %d and Address: %v", n.ID, n.Addr)
+	c.Logger.Printf("Removed a node with ID: %d and Address: %v", n.ID, n.Addr)
 	delete(c.Nodes, n.ID)
 	return n, nil
 }
