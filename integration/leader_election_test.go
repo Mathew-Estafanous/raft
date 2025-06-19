@@ -20,7 +20,7 @@ func isLeader(r *raft.Raft) bool {
 }
 
 // waitForLeader waits for a leader to be elected in the cluster
-func waitForLeader(t *testing.T, rafts []*raft.Raft, timeout time.Duration) (*raft.Raft, error) {
+func waitForLeader(t *testing.T, nodes []*testNode, timeout time.Duration) (*raft.Raft, error) {
 	t.Helper()
 
 	timer := time.NewTimer(timeout)
@@ -32,10 +32,10 @@ func waitForLeader(t *testing.T, rafts []*raft.Raft, timeout time.Duration) (*ra
 
 	go func() {
 		for {
-			for _, r := range rafts {
-				if isLeader(r) {
+			for _, n := range nodes {
+				if isLeader(n.raft) {
 					select {
-					case leaderCh <- r:
+					case leaderCh <- n.raft:
 						return
 					default:
 						// Channel is closed, exit goroutine
@@ -56,10 +56,10 @@ func waitForLeader(t *testing.T, rafts []*raft.Raft, timeout time.Duration) (*ra
 }
 
 // countLeaders counts the number of leaders in the cluster
-func countLeaders(rafts []*raft.Raft) int {
+func countLeaders(nodes []*testNode) int {
 	count := 0
-	for _, r := range rafts {
-		if isLeader(r) {
+	for _, n := range nodes {
+		if isLeader(n.raft) {
 			count++
 		}
 	}
@@ -69,21 +69,21 @@ func countLeaders(rafts []*raft.Raft) int {
 // TestLeaderElectionBasic tests basic leader election functionality
 func TestLeaderElectionBasic(t *testing.T) {
 	// Create a small cluster with 3 nodes
-	rafts, startCluster := setupCluster(t, 10)
+	nodes, startCluster := setupCluster(t, 10)
 	defer func() {
-		cleanupTestCluster(t, rafts)
+		cleanupTestCluster(t, nodes)
 	}()
 
 	startCluster()
 
 	// Wait for a leader to be elected
-	leader, err := waitForLeader(t, rafts, 10*time.Second)
+	leader, err := waitForLeader(t, nodes, 10*time.Second)
 	require.NoError(t, err, "Failed to elect a leader")
 
 	t.Logf("Leader elected: Node %d", leader.ID())
 
 	// Verify that exactly one leader was elected
-	leaderCount := countLeaders(rafts)
+	leaderCount := countLeaders(nodes)
 	assert.Equal(t, 1, leaderCount, "Expected exactly one leader")
 }
 

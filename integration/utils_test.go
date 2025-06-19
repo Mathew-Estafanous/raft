@@ -25,35 +25,55 @@ var testOpts = raft.Options{
 
 // testFSM is a simple in-memory key-value store that implements the raft.FSM interface
 type testFSM struct {
-	mu    sync.RWMutex
-	store map[string][]byte
+	mu          sync.RWMutex
+	store       map[string][]byte
+	appliedCmds [][]byte
 }
 
 func newTestFSM() *testFSM {
 	return &testFSM{
-		store: make(map[string][]byte),
+		store:       make(map[string][]byte),
+		appliedCmds: make([][]byte, 0),
 	}
 }
 
-func (f *testFSM) Apply(_ []byte) error {
-	// Simple implementation - not needed for leader election tests
+func (f *testFSM) Apply(cmd []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if string(cmd) == "test" {
+		// ignore 'test' apply commands as those are used by the testing utils
+		// to confirm if a node is a leader (or not)
+		return nil
+	}
+
+	// Store the command in the applied commands list
+	f.appliedCmds = append(f.appliedCmds, cmd)
 	return nil
 }
 
 func (f *testFSM) Snapshot() ([]byte, error) {
-	// Simple implementation - not needed for leader election tests
+	// Simple implementation - not needed for log replication tests
 	return nil, nil
 }
 
 func (f *testFSM) Restore(_ []byte) error {
-	// Simple implementation - not needed for leader election tests
+	// Simple implementation - not needed for log replication tests
 	return nil
+}
+
+type testNode struct {
+	id          uint64
+	raft        *raft.Raft
+	fsm         *testFSM
+	logStore    raft.LogStore
+	stableStore raft.StableStore
 }
 
 type clusterOptFunc func(node cluster.Node, logStore raft.LogStore, stableStore raft.StableStore, raftOptions *raft.Options)
 
 // setupCluster creates a cluster of n Raft nodes for testing
-func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*raft.Raft, func()) {
+func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, func()) {
 	t.Helper()
 
 	// Create a test staticCluster configuration
@@ -65,7 +85,7 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*raft.Raft, fu
 
 	require.NoError(t, err)
 
-	rafts := make([]*raft.Raft, 0, n)
+	nodes := make([]*testNode, 0, n)
 
 	// Then, create and start all Raft instances
 	for _, node := range staticCluster.Nodes {
@@ -80,36 +100,42 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*raft.Raft, fu
 		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore)
 		require.NoError(t, err)
 
-		rafts = append(rafts, raftInst)
+		nodes = append(nodes, &testNode{
+			id:          node.ID,
+			raft:        raftInst,
+			fsm:         fsm,
+			logStore:    memStore,
+			stableStore: memStore,
+		})
 	}
 
 	startClusterFunc := func() {
-		for _, r := range rafts {
+		for _, r := range nodes {
 			go func(raft *raft.Raft) {
 				n := staticCluster.AllNodes()[raft.ID()]
 				err := raft.ListenAndServe(n.Addr)
 				if err != nil {
 					t.Logf("Node %d stopped with error: %v", n.ID, err)
 				}
-			}(r)
+			}(r.raft)
 		}
 	}
 
-	return rafts, startClusterFunc
+	return nodes, startClusterFunc
 }
 
 // cleanupTestCluster shuts down all nodes and cleans up resources
-func cleanupTestCluster(t *testing.T, rafts []*raft.Raft) {
+func cleanupTestCluster(t *testing.T, nodes []*testNode) {
 	t.Helper()
 
 	wg := sync.WaitGroup{}
-	wg.Add(len(rafts))
+	wg.Add(len(nodes))
 
-	for _, r := range rafts {
+	for _, n := range nodes {
 		go func(raft *raft.Raft) {
 			defer wg.Done()
 			raft.Shutdown()
-		}(r)
+		}(n.raft)
 	}
 	wg.Wait()
 }
