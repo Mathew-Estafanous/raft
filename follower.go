@@ -11,7 +11,6 @@ func (r *Raft) runFollowerState() {
 	for r.getState() == Follower {
 		select {
 		case <-r.timer.C:
-			r.logger.Println("Timeout event has occurred.")
 			r.setState(Candidate)
 			r.leaderId = 0
 			return
@@ -29,7 +28,7 @@ func (r *Raft) runFollowerState() {
 
 			resp := sendRPC(&pb.ApplyRequest{
 				Command: t.log.Cmd,
-			}, n, r.opts.TlsConfig)
+			}, n, r.opts.TlsConfig, r.opts.Dialer)
 			if resp.error != nil {
 				r.logger.Printf("Failed to forward apply request to leader: %v", resp.error)
 				t.respond(fmt.Errorf("couldn't apply request: %v", resp.error))

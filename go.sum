@@ -10,6 +10,8 @@ github.com/Mathew-Estafanous/memlist v0.2.1 h1:C9bbI88lGSfm6e2g5bFyfikal/P5WCKv7
 github.com/Mathew-Estafanous/memlist v0.2.1/go.mod h1:PfWlXdIdBeKe8NgMtlDk0HDrD3r7T0ACmya3yhCEkcU=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+github.com/cevatbarisyilmaz/lossy v0.2.1 h1:OIGeJYdCHlVIRameppxnuihGOBZzY4jyNYUEQGrpc7Y=
+github.com/cevatbarisyilmaz/lossy v0.2.1/go.mod h1:POUoU6pJUN+KSECSU/gPwCdf+xf9GUlW2azwDL3qtEA=
 github.com/cncf/xds/go v0.0.0-20250326154945-ae57f3c0d45f h1:C5bqEmzEPLsHm9Mv73lSE9e9bKV23aB1vxOsmZrkl3k=
 github.com/cncf/xds/go v0.0.0-20250326154945-ae57f3c0d45f/go.mod h1:W+zGtBO5Y1IgJhy4+A9GOqVhqLpfZi+vwmdNXUehLA8=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

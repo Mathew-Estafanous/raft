@@ -2,6 +2,7 @@ package integration
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"testing"
 
@@ -68,9 +69,11 @@ type testNode struct {
 	fsm         *testFSM
 	logStore    raft.LogStore
 	stableStore raft.StableStore
+	list        *lostListener
+	options     *raft.Options
 }
 
-type clusterOptFunc func(node cluster.Node, logStore raft.LogStore, stableStore raft.StableStore, raftOptions *raft.Options)
+type clusterOptFunc func(node *testNode)
 
 // setupCluster creates a cluster of n Raft nodes for testing
 func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, func()) {
@@ -92,32 +95,42 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 		fsm := newTestFSM()
 		memStore := store.NewMemStore()
 
+		list, err := net.Listen("tcp", node.Addr)
+		require.NoError(t, err)
+
+		tNode := &testNode{
+			id:          node.ID,
+			fsm:         fsm,
+			logStore:    memStore,
+			stableStore: memStore,
+			list: &lostListener{
+				list:        list,
+				dropPackets: false,
+			},
+			options: &testOpts,
+		}
+
 		// Apply any additional options to the raft
 		for _, opt := range opts {
-			opt(node, memStore, memStore, &testOpts)
+			opt(tNode)
 		}
 
 		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore)
 		require.NoError(t, err)
 
-		nodes = append(nodes, &testNode{
-			id:          node.ID,
-			raft:        raftInst,
-			fsm:         fsm,
-			logStore:    memStore,
-			stableStore: memStore,
-		})
+		tNode.raft = raftInst
+		nodes = append(nodes, tNode)
 	}
 
 	startClusterFunc := func() {
-		for _, r := range nodes {
-			go func(raft *raft.Raft) {
+		for _, n := range nodes {
+			go func(raft *raft.Raft, list net.Listener) {
 				n := staticCluster.AllNodes()[raft.ID()]
-				err := raft.ListenAndServe(n.Addr)
+				err := raft.Serve(list)
 				if err != nil {
 					t.Logf("Node %d stopped with error: %v", n.ID, err)
 				}
-			}(r.raft)
+			}(n.raft, n.list)
 		}
 	}
 
@@ -138,4 +151,71 @@ func cleanupTestCluster(t *testing.T, nodes []*testNode) {
 		}(n.raft)
 	}
 	wg.Wait()
+}
+
+type lostConnection struct {
+	conn net.Conn
+}
+
+func (l *lostConnection) Read(b []byte) (n int, err error) {
+	// mock a dropped connection
+	return 0, nil
+}
+
+func (l *lostConnection) Write(b []byte) (n int, err error) {
+	// mock a dropped connection
+	return 0, nil
+}
+
+func (l *lostConnection) Close() error {
+	return l.conn.Close()
+}
+
+func (l *lostConnection) LocalAddr() net.Addr {
+	return l.conn.LocalAddr()
+}
+
+func (l *lostConnection) RemoteAddr() net.Addr {
+	return l.conn.RemoteAddr()
+}
+
+func (l *lostConnection) SetDeadline(t time.Time) error {
+	return l.conn.SetDeadline(t)
+}
+
+func (l *lostConnection) SetReadDeadline(t time.Time) error {
+	return l.conn.SetReadDeadline(t)
+}
+
+func (l *lostConnection) SetWriteDeadline(t time.Time) error {
+	return l.conn.SetWriteDeadline(t)
+}
+
+// lostListener is a wrapper around the net.Listener interface to simulate
+//
+//	a partitioned network by dropping all incoming packets.
+type lostListener struct {
+	list        net.Listener
+	dropPackets bool
+}
+
+func (l *lostListener) Accept() (net.Conn, error) {
+	realConn, err := l.list.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	if !l.dropPackets {
+		return realConn, err
+	}
+
+	return &lostConnection{realConn}, nil
+}
+
+func (l *lostListener) Close() error {
+	return l.list.Close()
+}
+
+func (l *lostListener) Addr() net.Addr {
+	return l.list.Addr()
 }

@@ -98,6 +98,10 @@ type Options struct {
 	// if config is left as nil.
 	TlsConfig *tls.Config
 
+	// Dialer is used by the raft's gRPC client to create a connection to the resolving target address.
+	// Optionally Use this if you'd like to control the underlying connection of the gRPC client.
+	Dialer Dialer
+
 	// ForwardApply enables follower nodes to automatically forward apply requests to the leader
 	// and response to the request without the caller needing to know who is a leader. Otherwise,
 	// the request will fail with a LeaderError.
