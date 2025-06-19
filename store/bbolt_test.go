@@ -1,7 +1,7 @@
 package store
 
 import (
-	raft "github.com/Mathew-Estafanous/raft/pkg"
+	"github.com/Mathew-Estafanous/raft"
 	bolt "go.etcd.io/bbolt"
 	"os"
 	"path/filepath"

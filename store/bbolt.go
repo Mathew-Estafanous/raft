@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	raft "github.com/Mathew-Estafanous/raft/pkg"
+	"github.com/Mathew-Estafanous/raft"
 	"os"
 	"path/filepath"
 	"sync"

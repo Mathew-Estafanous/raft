@@ -1,7 +1,7 @@
 package integration
 
 import (
-	raft "github.com/Mathew-Estafanous/raft/pkg"
+	"github.com/Mathew-Estafanous/raft"
 	"sync"
 	"time"
 )

@@ -2,7 +2,7 @@ package store
 
 import (
 	"fmt"
-	raft "github.com/Mathew-Estafanous/raft/pkg"
+	"github.com/Mathew-Estafanous/raft"
 	"sync"
 )
 

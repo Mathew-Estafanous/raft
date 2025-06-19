@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	raft "github.com/Mathew-Estafanous/raft/pkg"
-	"github.com/Mathew-Estafanous/raft/pkg/cluster"
-	"github.com/Mathew-Estafanous/raft/pkg/store"
+	"github.com/Mathew-Estafanous/raft"
+	"github.com/Mathew-Estafanous/raft/cluster"
+	"github.com/Mathew-Estafanous/raft/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

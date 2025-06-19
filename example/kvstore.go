@@ -5,7 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	raft "github.com/Mathew-Estafanous/raft/pkg"
+	"github.com/Mathew-Estafanous/raft"
 	"net/http"
 	"strings"
 )

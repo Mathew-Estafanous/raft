@@ -7,9 +7,9 @@ package main
 
 import (
 	"fmt"
-	raft "github.com/Mathew-Estafanous/raft/pkg"
-	"github.com/Mathew-Estafanous/raft/pkg/cluster"
-	"github.com/Mathew-Estafanous/raft/pkg/store"
+	"github.com/Mathew-Estafanous/raft"
+	"github.com/Mathew-Estafanous/raft/cluster"
+	"github.com/Mathew-Estafanous/raft/store"
 	"log"
 	"net"
 	"net/http"

@@ -2,7 +2,7 @@ package raft
 
 import (
 	"fmt"
-	"github.com/Mathew-Estafanous/raft/pkg/pb"
+	"github.com/Mathew-Estafanous/raft/pb"
 )
 
 func (r *Raft) runFollowerState() {
