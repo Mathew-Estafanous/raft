@@ -35,7 +35,7 @@ func (f *testFSM) Restore(_ []byte) error {
 
 var testOpts = raft.Options{
 	MinElectionTimeout: 1 * time.Second,
-	MaxElectionTimout:  5 * time.Second,
+	MaxElectionTimout:  2 * time.Second,
 	HeartBeatTimout:    500 * time.Millisecond,
 	SnapshotTimer:      8 * time.Second,
 	LogThreshold:       5,

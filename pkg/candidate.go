@@ -73,8 +73,8 @@ func (r *Raft) handleVoteResponse(vote *pb.VoteResponse) {
 
 	if vote.VoteGranted {
 		r.votesNeeded--
-		// Check if the total votes needed has been reached. If so
-		// then election has passed and candidate is now the leader.
+		// Check if the total votes needed have been reached. If so, then the
+		// election has passed and the candidate is now the leader.
 		if r.votesNeeded == 0 {
 			r.setState(Leader)
 		}
