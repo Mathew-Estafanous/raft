@@ -3,11 +3,12 @@ package cluster
 import (
 	"encoding/gob"
 	"fmt"
-	"github.com/Mathew-Estafanous/memlist"
 	"log"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/Mathew-Estafanous/memlist"
 )
 
 // DynamicCluster provides a dynamic membership solution for a Raft cluster.

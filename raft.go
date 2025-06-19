@@ -4,8 +4,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
 	"log"
 	"math/rand"
 	"net"
@@ -13,6 +11,9 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Mathew-Estafanous/raft/cluster"
+	"github.com/Mathew-Estafanous/raft/pb"
 )
 
 var (

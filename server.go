@@ -3,10 +3,11 @@ package raft
 import (
 	"context"
 	"crypto/tls"
+	"net"
+
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"net"
 )
 
 type requestHandler interface {

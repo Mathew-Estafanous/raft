@@ -2,6 +2,7 @@ package raft
 
 import (
 	"fmt"
+
 	"github.com/Mathew-Estafanous/raft/pb"
 )
 

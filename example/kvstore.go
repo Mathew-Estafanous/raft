@@ -5,9 +5,10 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/Mathew-Estafanous/raft"
 	"net/http"
 	"strings"
+
+	"github.com/Mathew-Estafanous/raft"
 )
 
 type KvStore struct {

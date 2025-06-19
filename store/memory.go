@@ -2,8 +2,9 @@ package store
 
 import (
 	"fmt"
-	"github.com/Mathew-Estafanous/raft"
 	"sync"
+
+	"github.com/Mathew-Estafanous/raft"
 )
 
 // InMemStore is an implementation of the StableStore and LogStore interface.

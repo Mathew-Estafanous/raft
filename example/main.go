@@ -7,15 +7,16 @@ package main
 
 import (
 	"fmt"
-	"github.com/Mathew-Estafanous/raft"
-	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/store"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"sync"
+
+	"github.com/Mathew-Estafanous/raft"
+	"github.com/Mathew-Estafanous/raft/cluster"
+	"github.com/Mathew-Estafanous/raft/store"
 )
 
 // [exe] <MemberPort> <ID> <Address* (of another node in the cluster)>

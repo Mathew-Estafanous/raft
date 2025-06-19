@@ -4,10 +4,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/Mathew-Estafanous/raft"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/Mathew-Estafanous/raft"
 
 	bolt "go.etcd.io/bbolt"
 )

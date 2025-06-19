@@ -3,12 +3,13 @@ package raft
 import (
 	"context"
 	"crypto/tls"
+	"log"
+
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-	"log"
 )
 
 func sendRPC(req interface{}, target cluster.Node, config *tls.Config) rpcResp {

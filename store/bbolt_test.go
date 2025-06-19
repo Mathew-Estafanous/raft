@@ -1,11 +1,12 @@
 package store
 
 import (
-	"github.com/Mathew-Estafanous/raft"
-	bolt "go.etcd.io/bbolt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Mathew-Estafanous/raft"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
