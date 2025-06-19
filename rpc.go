@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"log"
+	"net"
 
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
@@ -12,14 +13,24 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func sendRPC(req interface{}, target cluster.Node, config *tls.Config) rpcResp {
+type Dialer func(context.Context, string) (net.Conn, error)
+
+func sendRPC(req interface{}, target cluster.Node, config *tls.Config, dialer Dialer) rpcResp {
 	var creds credentials.TransportCredentials
 	if config == nil {
 		creds = insecure.NewCredentials()
 	} else {
 		creds = credentials.NewTLS(config)
 	}
-	conn, err := grpc.NewClient(target.Addr, grpc.WithTransportCredentials(creds))
+
+	var conn *grpc.ClientConn
+	var err error
+	if dialer != nil {
+		conn, err = grpc.NewClient(target.Addr, grpc.WithTransportCredentials(creds), grpc.WithContextDialer(dialer))
+	} else {
+		conn, err = grpc.NewClient(target.Addr, grpc.WithTransportCredentials(creds))
+	}
+
 	if err != nil {
 		return rpcResp{
 			resp:  nil,

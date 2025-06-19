@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Mathew-Estafanous/raft"
-	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,8 +81,8 @@ func TestLogReplication_FailsFromFollower_DisabledForwardApply(t *testing.T) {
 }
 
 func TestLogReplication_FromFollower_EnabledForwardApply(t *testing.T) {
-	nodes, startCluster := setupCluster(t, 3, func(_ cluster.Node, _ raft.LogStore, _ raft.StableStore, options *raft.Options) {
-		options.ForwardApply = true
+	nodes, startCluster := setupCluster(t, 3, func(node *testNode) {
+		node.options.ForwardApply = true
 	})
 	defer func() {
 		cleanupTestCluster(t, nodes)
@@ -111,7 +110,7 @@ func TestLogReplication_FromFollower_EnabledForwardApply(t *testing.T) {
 }
 
 func TestLogReplication_LeaderLogsReplicated(t *testing.T) {
-	populateLogs := func(n cluster.Node, logStore raft.LogStore, stableStore raft.StableStore, _ *raft.Options) {
+	populateLogs := func(node *testNode) {
 		logs := []*raft.Log{
 			{
 				Type:  raft.Entry,
@@ -127,16 +126,16 @@ func TestLogReplication_LeaderLogsReplicated(t *testing.T) {
 			},
 		}
 
-		if n.ID == 3 {
+		if node.id == 3 {
 			return
 		}
 
-		t.Logf("Populating logs for node %d", n.ID)
-		err := logStore.AppendLogs(logs)
+		t.Logf("Populating logs for node %d", node.id)
+		err := node.logStore.AppendLogs(logs)
 		require.NoError(t, err, "Failed to append logs to log store")
-		err = stableStore.Set([]byte("currentTerm"), []byte(fmt.Sprintf("%d", 2)))
+		err = node.stableStore.Set([]byte("currentTerm"), []byte(fmt.Sprintf("%d", 2)))
 		require.NoError(t, err, "Failed to set currentTerm in stable store")
-		err = stableStore.Set([]byte("lastApplied"), []byte(fmt.Sprintf("%d", 2)))
+		err = node.stableStore.Set([]byte("lastApplied"), []byte(fmt.Sprintf("%d", 2)))
 		require.NoError(t, err, "Failed to set lastApplied in stable store")
 	}
 

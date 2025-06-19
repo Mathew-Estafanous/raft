@@ -1,12 +1,13 @@
 package integration
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/Mathew-Estafanous/raft"
-	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -116,7 +117,7 @@ func TestLeaderElection_AfterLeaderFails(t *testing.T) {
 }
 
 func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
-	populateLogs := func(n cluster.Node, logStore raft.LogStore, stableStore raft.StableStore, _ *raft.Options) {
+	populateLogs := func(node *testNode) {
 		logs := []*raft.Log{
 			{
 				Type:  raft.Entry,
@@ -132,27 +133,27 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 			},
 		}
 
-		if n.ID == 3 {
+		if node.id == 3 {
 			return
 		}
 
-		t.Logf("Populating logs for node %d", n.ID)
-		err := logStore.AppendLogs(logs)
+		t.Logf("Populating logs for node %d", node.id)
+		err := node.logStore.AppendLogs(logs)
 		require.NoError(t, err, "Failed to append logs to log store")
-		err = stableStore.Set([]byte("currentTerm"), []byte(fmt.Sprintf("%d", 2)))
+		err = node.stableStore.Set([]byte("currentTerm"), []byte(fmt.Sprintf("%d", 2)))
 		require.NoError(t, err, "Failed to set currentTerm in stable store")
-		err = stableStore.Set([]byte("lastApplied"), []byte(fmt.Sprintf("%d", 2)))
+		err = node.stableStore.Set([]byte("lastApplied"), []byte(fmt.Sprintf("%d", 2)))
 		require.NoError(t, err, "Failed to set lastApplied in stable store")
 	}
 
-	fasterNodeThree := func(n cluster.Node, _ raft.LogStore, _ raft.StableStore, options *raft.Options) {
-		if n.ID != 3 {
+	fasterNodeThree := func(node *testNode) {
+		if node.id != 3 {
 			return
 		}
 
 		t.Logf("Ensuring node 3 attempts a leader election before other nodes.")
-		options.MinElectionTimeout = 700 * time.Millisecond
-		options.MaxElectionTimout = 1300 * time.Millisecond
+		node.options.MinElectionTimeout = 700 * time.Millisecond
+		node.options.MaxElectionTimout = 1300 * time.Millisecond
 	}
 
 	rafts, startCluster := setupCluster(t, 3, populateLogs, fasterNodeThree)
@@ -166,4 +167,37 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 	require.NoError(t, err, "Failed to elect a leader")
 
 	require.NotEqual(t, 3, leader.ID(), "Expected a leader other than node 3")
+}
+
+func TestLeaderElection_OnNetworkPartition(t *testing.T) {
+	partitionCluster := func(node *testNode) {
+		node.options.MaxElectionTimout = 5 * time.Second
+
+		if node.id > 7 {
+			node.list.dropPackets = true
+			node.options.Dialer = func(_ context.Context, target string) (net.Conn, error) {
+				conn, err := net.Dial("tcp", target)
+				if err != nil {
+					return nil, err
+				}
+				return &lostConnection{conn}, nil
+			}
+		}
+	}
+
+	nodes, startCluster := setupCluster(t, 10, partitionCluster)
+	defer func() {
+		cleanupTestCluster(t, nodes)
+	}()
+
+	startCluster()
+
+	leader, err := waitForLeader(t, nodes, 10*time.Second)
+	require.NoError(t, err, "Failed to elect a leader")
+
+	t.Logf("Leader elected: Node %d", leader.ID())
+
+	// Verify that exactly one leader was elected
+	leaderCount := countLeaders(nodes)
+	assert.Equal(t, 1, leaderCount, "Expected exactly one leader")
 }

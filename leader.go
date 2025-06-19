@@ -137,7 +137,7 @@ func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	}
 	r.mu.Unlock()
 
-	resp := sendRPC(req, n, r.opts.TlsConfig)
+	resp := sendRPC(req, n, r.opts.TlsConfig, r.opts.Dialer)
 	r.appendEntryCh <- appendEntryResp{resp, n.ID}
 }
 
