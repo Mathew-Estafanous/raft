@@ -14,8 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type clusterOptFunc func(node cluster.Node, logStore raft.LogStore, stableStore raft.StableStore, raftOptions *raft.Options)
+
 // setupCluster creates a cluster of n Raft nodes for testing
-func setupCluster(t *testing.T, n int) ([]*raft.Raft, *cluster.StaticCluster) {
+func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*raft.Raft, func()) {
 	t.Helper()
 
 	// Create a test staticCluster configuration
@@ -34,21 +36,30 @@ func setupCluster(t *testing.T, n int) ([]*raft.Raft, *cluster.StaticCluster) {
 		fsm := newTestFSM()
 		memStore := store.NewMemStore()
 
+		// Apply any additional options to the raft
+		for _, opt := range opts {
+			opt(node, memStore, memStore, &testOpts)
+		}
+
 		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore)
 		require.NoError(t, err)
 
 		rafts = append(rafts, raftInst)
-
-		// Start the Raft server in a goroutine
-		go func(r *raft.Raft, n cluster.Node) {
-			err := r.ListenAndServe(n.Addr)
-			if err != nil {
-				t.Logf("Node %d stopped with error: %v", n.ID, err)
-			}
-		}(raftInst, node)
 	}
 
-	return rafts, staticCluster
+	startClusterFunc := func() {
+		for _, r := range rafts {
+			go func(raft *raft.Raft) {
+				n := staticCluster.AllNodes()[raft.ID()]
+				err := raft.ListenAndServe(n.Addr)
+				if err != nil {
+					t.Logf("Node %d stopped with error: %v", n.ID, err)
+				}
+			}(r)
+		}
+	}
+
+	return rafts, startClusterFunc
 }
 
 // cleanupTestCluster shuts down all nodes and cleans up resources
@@ -125,10 +136,12 @@ func countLeaders(rafts []*raft.Raft) int {
 // TestLeaderElectionBasic tests basic leader election functionality
 func TestLeaderElectionBasic(t *testing.T) {
 	// Create a small cluster with 3 nodes
-	rafts, _ := setupCluster(t, 10)
+	rafts, startCluster := setupCluster(t, 10)
 	defer func() {
 		cleanupTestCluster(t, rafts)
 	}()
+
+	startCluster()
 
 	// Wait for a leader to be elected
 	leader, err := waitForLeader(t, rafts, 10*time.Second)
@@ -143,10 +156,12 @@ func TestLeaderElectionBasic(t *testing.T) {
 
 func TestLeaderElection_AfterLeaderFails(t *testing.T) {
 	// Create a small cluster with 3 nodes
-	rafts, _ := setupCluster(t, 10)
+	rafts, startCluster := setupCluster(t, 10)
 	defer func() {
 		cleanupTestCluster(t, rafts)
 	}()
+
+	startCluster()
 
 	leader, err := waitForLeader(t, rafts, 10*time.Second)
 	require.NoError(t, err, "Failed to elect a leader")
@@ -165,4 +180,57 @@ func TestLeaderElection_AfterLeaderFails(t *testing.T) {
 	// Verify that exactly one leader was elected
 	leaderCount := countLeaders(rafts)
 	assert.Equal(t, 1, leaderCount, "Expected exactly one leader")
+}
+
+func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
+	populateLogs := func(n cluster.Node, logStore raft.LogStore, stableStore raft.StableStore, _ *raft.Options) {
+		logs := []*raft.Log{
+			{
+				Type:  raft.Entry,
+				Index: 1,
+				Term:  1,
+				Cmd:   []byte("cmd1"),
+			},
+			{
+				Type:  raft.Entry,
+				Index: 2,
+				Term:  2,
+				Cmd:   []byte("cmd2"),
+			},
+		}
+
+		if n.ID == 3 {
+			return
+		}
+
+		t.Logf("Populating logs for node %d", n.ID)
+		err := logStore.AppendLogs(logs)
+		require.NoError(t, err, "Failed to append logs to log store")
+		err = stableStore.Set([]byte("currentTerm"), []byte(fmt.Sprintf("%d", 2)))
+		require.NoError(t, err, "Failed to set currentTerm in stable store")
+		err = stableStore.Set([]byte("lastApplied"), []byte(fmt.Sprintf("%d", 2)))
+		require.NoError(t, err, "Failed to set lastApplied in stable store")
+	}
+
+	fasterNodeThree := func(n cluster.Node, _ raft.LogStore, _ raft.StableStore, options *raft.Options) {
+		if n.ID != 3 {
+			return
+		}
+
+		t.Logf("Ensuring node 3 attempts a leader election before other nodes.")
+		options.MinElectionTimeout = 700 * time.Millisecond
+		options.MaxElectionTimout = 1300 * time.Millisecond
+	}
+
+	rafts, startCluster := setupCluster(t, 3, populateLogs, fasterNodeThree)
+	defer func() {
+		cleanupTestCluster(t, rafts)
+	}()
+
+	startCluster()
+
+	leader, err := waitForLeader(t, rafts, 10*time.Second)
+	require.NoError(t, err, "Failed to elect a leader")
+
+	require.NotEqual(t, 3, leader.ID(), "Expected a leader other than node 3")
 }
