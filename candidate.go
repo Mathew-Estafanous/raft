@@ -5,21 +5,23 @@ import (
 
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
+	"golang.org/x/net/context"
 )
 
 func (r *Raft) runCandidateState() {
-	r.electionTimer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
+	electCtx, cancel := context.WithTimeout(context.Background(), r.opts.MaxElectionTimout)
+	defer cancel()
+
 	r.setStableStore(keyCurrentTerm, r.fromStableStore(keyCurrentTerm)+1)
 	r.logger.Printf("Candidate started election for term %v.", r.fromStableStore(keyCurrentTerm))
 
-	// Run election for candidate by sending request votes to other nodes.
-	r.sendVoteRequests()
+	r.sendVoteRequests(electCtx)
 
 	for r.getState() == Candidate {
 		select {
-		case <-r.electionTimer.C:
+		case <-electCtx.Done():
 			r.logger.Printf("Election has failed for term %d", r.fromStableStore(keyCurrentTerm))
-			return
+			r.setState(Follower)
 		case v := <-r.voteCh:
 			if v.error != nil {
 				r.logger.Printf("A vote request has failed: %v", v.error)
@@ -31,6 +33,7 @@ func (r *Raft) runCandidateState() {
 		case t := <-r.applyCh:
 			t.respond(fmt.Errorf("no leader assigned for term, try again later"))
 		case <-r.shutdownCh:
+			cancel()
 			return
 		}
 	}
@@ -38,8 +41,9 @@ func (r *Raft) runCandidateState() {
 
 // sendVoteRequests will initialize and send the vote requests to other nodes
 // in the Cluster and return results in a vote channel.
-func (r *Raft) sendVoteRequests() {
-	r.voteCh = make(chan rpcResp, len(r.cluster.AllNodes()))
+func (r *Raft) sendVoteRequests(ctx context.Context) {
+	nodes := r.cluster.AllNodes()
+	r.voteCh = make(chan rpcResp, len(nodes))
 	r.votesNeeded = r.cluster.Quorum() - 1
 	r.setStableStore(keyVotedFor, r.id)
 	req := &pb.VoteRequest{
@@ -49,16 +53,20 @@ func (r *Raft) sendVoteRequests() {
 		LastLogTerm:  r.log.LastTerm(),
 	}
 
-	for _, v := range r.cluster.AllNodes() {
+	for _, v := range nodes {
 		if v.ID == r.id {
 			continue
 		}
 
 		// Make RPC request in a separate goroutine to prevent blocking operations.
-		go func(n cluster.Node) {
-			res := sendRPC(req, n, r.opts.TlsConfig, r.opts.Dialer)
-			r.voteCh <- res
-		}(v)
+		go func(ctx context.Context, n cluster.Node, opts Options, voteCh chan rpcResp) {
+			res := sendRPC(req, n, opts.TlsConfig, opts.Dialer)
+			select {
+			case <-ctx.Done():
+				return
+			case voteCh <- res:
+			}
+		}(ctx, v, r.opts, r.voteCh)
 	}
 }
 

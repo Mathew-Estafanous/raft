@@ -172,7 +172,7 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 
 func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 	partitionCluster := func(node *testNode) {
-		node.options.MaxElectionTimout = 5 * time.Second
+		node.options.MaxElectionTimout = 3 * time.Second
 
 		if node.id > 7 {
 			node.list.dropPackets = true

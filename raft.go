@@ -138,9 +138,8 @@ type Raft struct {
 	applyCh    chan *logTask
 
 	// Candidate state variables
-	electionTimer *time.Timer
-	votesNeeded   int
-	voteCh        chan rpcResp
+	votesNeeded int
+	voteCh      chan rpcResp
 
 	// Leader state variables
 	heartbeat     *time.Timer
@@ -171,7 +170,7 @@ func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, s
 		lastApplied: -1,
 		shutdownCh:  make(chan bool),
 		fsmCh:       make(chan Task, 5),
-		applyCh:     make(chan *logTask, 5),
+		applyCh:     make(chan *logTask, 10),
 	}
 	r.state = Follower
 	return r, nil
@@ -287,7 +286,6 @@ func (r *Raft) setState(s raftState) {
 		r.state = Follower
 	case Candidate:
 		r.state = Candidate
-		r.electionTimer = time.NewTimer(1 * time.Hour)
 	case Leader:
 		r.state = Leader
 		r.heartbeat = time.NewTimer(r.opts.HeartBeatTimout)
