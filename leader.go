@@ -1,6 +1,8 @@
 package raft
 
 import (
+	"context"
+
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
 )
@@ -137,7 +139,7 @@ func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	}
 	r.mu.Unlock()
 
-	resp := sendRPC(req, n, r.opts.TlsConfig, r.opts.Dialer)
+	resp := sendRPC(req, n, context.Background(), r.opts.TlsConfig, r.opts.Dialer)
 	r.appendEntryCh <- appendEntryResp{resp, n.ID}
 }
 

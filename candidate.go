@@ -60,7 +60,7 @@ func (r *Raft) sendVoteRequests(ctx context.Context) {
 
 		// Make RPC request in a separate goroutine to prevent blocking operations.
 		go func(ctx context.Context, n cluster.Node, opts Options, voteCh chan rpcResp) {
-			res := sendRPC(req, n, opts.TlsConfig, opts.Dialer)
+			res := sendRPC(req, n, ctx, opts.TlsConfig, opts.Dialer)
 			select {
 			case <-ctx.Done():
 				return

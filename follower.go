@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Mathew-Estafanous/raft/pb"
@@ -26,9 +27,10 @@ func (r *Raft) runFollowerState() {
 				break
 			}
 
+			// TODO: replace background context with apply task ctx when added.
 			resp := sendRPC(&pb.ApplyRequest{
 				Command: t.log.Cmd,
-			}, n, r.opts.TlsConfig, r.opts.Dialer)
+			}, n, context.Background(), r.opts.TlsConfig, r.opts.Dialer)
 			if resp.error != nil {
 				r.logger.Printf("Failed to forward apply request to leader: %v", resp.error)
 				t.respond(fmt.Errorf("couldn't apply request: %v", resp.error))
