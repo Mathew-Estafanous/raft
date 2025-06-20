@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Mathew-Estafanous/raft"
+	"github.com/cevatbarisyilmaz/lossy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -180,7 +181,9 @@ func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 				if err != nil {
 					return nil, err
 				}
-				return &lostConnection{conn}, nil
+
+				lossyConn := lossy.NewConn(conn, 0, time.Duration(0), time.Duration(0), 0.99, lossy.IPv4MaxHeaderOverhead)
+				return lossyConn, nil
 			}
 		}
 	}
@@ -196,6 +199,8 @@ func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 	require.NoError(t, err, "Failed to elect a leader")
 
 	t.Logf("Leader elected: Node %d", leader.ID())
+
+	require.LessOrEqual(t, leader.ID(), uint64(7), "Expected leader to be on node 7 or less")
 
 	// Verify that exactly one leader was elected
 	leaderCount := countLeaders(nodes)

@@ -9,6 +9,7 @@ import (
 	"github.com/Mathew-Estafanous/raft"
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/store"
+	"github.com/cevatbarisyilmaz/lossy"
 	"github.com/stretchr/testify/require"
 
 	"sync"
@@ -153,47 +154,8 @@ func cleanupTestCluster(t *testing.T, nodes []*testNode) {
 	wg.Wait()
 }
 
-type lostConnection struct {
-	conn net.Conn
-}
-
-func (l *lostConnection) Read(b []byte) (n int, err error) {
-	// mock a dropped connection
-	return 0, nil
-}
-
-func (l *lostConnection) Write(b []byte) (n int, err error) {
-	// mock a dropped connection
-	return 0, nil
-}
-
-func (l *lostConnection) Close() error {
-	return l.conn.Close()
-}
-
-func (l *lostConnection) LocalAddr() net.Addr {
-	return l.conn.LocalAddr()
-}
-
-func (l *lostConnection) RemoteAddr() net.Addr {
-	return l.conn.RemoteAddr()
-}
-
-func (l *lostConnection) SetDeadline(t time.Time) error {
-	return l.conn.SetDeadline(t)
-}
-
-func (l *lostConnection) SetReadDeadline(t time.Time) error {
-	return l.conn.SetReadDeadline(t)
-}
-
-func (l *lostConnection) SetWriteDeadline(t time.Time) error {
-	return l.conn.SetWriteDeadline(t)
-}
-
 // lostListener is a wrapper around the net.Listener interface to simulate
-//
-//	a partitioned network by dropping all incoming packets.
+// a partitioned network by dropping 0.99 incoming connections
 type lostListener struct {
 	list        net.Listener
 	dropPackets bool
@@ -209,7 +171,8 @@ func (l *lostListener) Accept() (net.Conn, error) {
 		return realConn, err
 	}
 
-	return &lostConnection{realConn}, nil
+	lossyConn := lossy.NewConn(realConn, 0, time.Duration(0), time.Duration(0), 0.99, lossy.IPv4MaxHeaderOverhead)
+	return lossyConn, nil
 }
 
 func (l *lostListener) Close() error {
