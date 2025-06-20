@@ -21,42 +21,6 @@ func isLeader(r *raft.Raft) bool {
 	return err == nil
 }
 
-// waitForLeader waits for a leader to be elected in the cluster
-func waitForLeader(t *testing.T, nodes []*testNode, timeout time.Duration) (*raft.Raft, error) {
-	t.Helper()
-
-	timer := time.NewTimer(timeout)
-	leaderCh := make(chan *raft.Raft)
-	defer func() {
-		timer.Stop()
-		close(leaderCh)
-	}()
-
-	go func() {
-		for {
-			for _, n := range nodes {
-				if isLeader(n.raft) {
-					select {
-					case leaderCh <- n.raft:
-						return
-					default:
-						// Channel is closed, exit goroutine
-						return
-					}
-				}
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-	}()
-
-	select {
-	case <-timer.C:
-		return nil, fmt.Errorf("no leader elected within timeout")
-	case leader := <-leaderCh:
-		return leader, nil
-	}
-}
-
 // countLeaders counts the number of leaders in the cluster
 func countLeaders(nodes []*testNode) int {
 	count := 0
@@ -172,8 +136,6 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 
 func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 	partitionCluster := func(node *testNode) {
-		node.options.MaxElectionTimout = 3 * time.Second
-
 		if node.id > 7 {
 			node.list.dropPackets = true
 			node.options.Dialer = func(_ context.Context, target string) (net.Conn, error) {
@@ -185,6 +147,9 @@ func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 				lossyConn := lossy.NewConn(conn, 0, time.Duration(0), time.Duration(0), 0.99, lossy.IPv4MaxHeaderOverhead)
 				return lossyConn, nil
 			}
+
+			node.options.MinElectionTimeout = 500 * time.Millisecond
+			node.options.MaxElectionTimout = 1 * time.Second
 		}
 	}
 

@@ -23,14 +23,14 @@ func sendRPC(req interface{}, target cluster.Node, ctx context.Context, config *
 		creds = credentials.NewTLS(config)
 	}
 
-	var conn *grpc.ClientConn
-	var err error
-	if dialer != nil {
-		conn, err = grpc.NewClient(target.Addr, grpc.WithTransportCredentials(creds), grpc.WithContextDialer(dialer))
-	} else {
-		conn, err = grpc.NewClient(target.Addr, grpc.WithTransportCredentials(creds))
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
 	}
 
+	if dialer != nil {
+		opts = append(opts, grpc.WithContextDialer(dialer))
+	}
+	conn, err := grpc.NewClient(target.Addr, opts...)
 	if err != nil {
 		return rpcResp{
 			resp:  nil,

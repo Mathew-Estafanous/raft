@@ -16,15 +16,6 @@ import (
 	"time"
 )
 
-var testOpts = raft.Options{
-	MinElectionTimeout: 1 * time.Second,
-	MaxElectionTimout:  2 * time.Second,
-	HeartBeatTimout:    500 * time.Millisecond,
-	SnapshotTimer:      8 * time.Second,
-	LogThreshold:       5,
-	ForwardApply:       false,
-}
-
 // testFSM is a simple in-memory key-value store that implements the raft.FSM interface
 type testFSM struct {
 	mu          sync.RWMutex
@@ -98,6 +89,15 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 
 		list, err := net.Listen("tcp", node.Addr)
 		require.NoError(t, err)
+
+		testOpts := raft.Options{
+			MinElectionTimeout: 2 * time.Second,
+			MaxElectionTimout:  4 * time.Second,
+			HeartBeatTimout:    1 * time.Second,
+			SnapshotTimer:      8 * time.Second,
+			LogThreshold:       5,
+			ForwardApply:       false,
+		}
 
 		tNode := &testNode{
 			id:          node.ID,
@@ -181,4 +181,40 @@ func (l *lostListener) Close() error {
 
 func (l *lostListener) Addr() net.Addr {
 	return l.list.Addr()
+}
+
+// waitForLeader waits for a leader to be elected in the cluster
+func waitForLeader(t *testing.T, nodes []*testNode, timeout time.Duration) (*raft.Raft, error) {
+	t.Helper()
+
+	timer := time.NewTimer(timeout)
+	leaderCh := make(chan *raft.Raft)
+	defer func() {
+		timer.Stop()
+		close(leaderCh)
+	}()
+
+	go func() {
+		for {
+			for _, n := range nodes {
+				if isLeader(n.raft) {
+					select {
+					case leaderCh <- n.raft:
+						return
+					default:
+						// Channel is closed, exit goroutine
+						return
+					}
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
+
+	select {
+	case <-timer.C:
+		return nil, fmt.Errorf("no leader elected within timeout")
+	case leader := <-leaderCh:
+		return leader, nil
+	}
 }
