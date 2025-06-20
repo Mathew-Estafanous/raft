@@ -15,7 +15,7 @@ import (
 
 type Dialer func(context.Context, string) (net.Conn, error)
 
-func sendRPC(req interface{}, target cluster.Node, config *tls.Config, dialer Dialer) rpcResp {
+func sendRPC(req interface{}, target cluster.Node, ctx context.Context, config *tls.Config, dialer Dialer) rpcResp {
 	var creds credentials.TransportCredentials
 	if config == nil {
 		creds = insecure.NewCredentials()
@@ -44,7 +44,6 @@ func sendRPC(req interface{}, target cluster.Node, config *tls.Config, dialer Di
 	c := pb.NewRaftClient(conn)
 
 	var res interface{}
-	ctx := context.Background()
 	switch req := req.(type) {
 	case *pb.VoteRequest:
 		res, err = c.RequestVote(ctx, req)
