@@ -9,7 +9,6 @@ import (
 	"github.com/Mathew-Estafanous/raft"
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/store"
-	"github.com/cevatbarisyilmaz/lossy"
 	"github.com/stretchr/testify/require"
 
 	"sync"
@@ -61,7 +60,7 @@ type testNode struct {
 	fsm         *testFSM
 	logStore    raft.LogStore
 	stableStore raft.StableStore
-	list        *lostListener
+	list        net.Listener
 	options     *raft.Options
 }
 
@@ -93,9 +92,9 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 		testOpts := raft.Options{
 			MinElectionTimeout: 2 * time.Second,
 			MaxElectionTimout:  4 * time.Second,
-			HeartBeatTimout:    1 * time.Second,
+			HeartBeatTimout:    500 * time.Millisecond,
 			SnapshotTimer:      8 * time.Second,
-			LogThreshold:       5,
+			LogThreshold:       0,
 			ForwardApply:       false,
 		}
 
@@ -104,11 +103,8 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 			fsm:         fsm,
 			logStore:    memStore,
 			stableStore: memStore,
-			list: &lostListener{
-				list:        list,
-				dropPackets: false,
-			},
-			options: &testOpts,
+			list:        list,
+			options:     &testOpts,
 		}
 
 		// Apply any additional options to the raft
@@ -152,35 +148,6 @@ func cleanupTestCluster(t *testing.T, nodes []*testNode) {
 		}(n.raft)
 	}
 	wg.Wait()
-}
-
-// lostListener is a wrapper around the net.Listener interface to simulate
-// a partitioned network by dropping 0.99 incoming connections
-type lostListener struct {
-	list        net.Listener
-	dropPackets bool
-}
-
-func (l *lostListener) Accept() (net.Conn, error) {
-	realConn, err := l.list.Accept()
-	if err != nil {
-		return nil, err
-	}
-
-	if !l.dropPackets {
-		return realConn, err
-	}
-
-	lossyConn := lossy.NewConn(realConn, 0, time.Duration(0), time.Duration(0), 0.99, lossy.IPv4MaxHeaderOverhead)
-	return lossyConn, nil
-}
-
-func (l *lostListener) Close() error {
-	return l.list.Close()
-}
-
-func (l *lostListener) Addr() net.Addr {
-	return l.list.Addr()
 }
 
 // waitForLeader waits for a leader to be elected in the cluster

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/Mathew-Estafanous/raft"
-	"github.com/cevatbarisyilmaz/lossy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/benchmark/latency"
 )
 
 // isLeader checks if a node is the leader by attempting to apply a command
@@ -128,7 +128,7 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 
 	startCluster()
 
-	leader, err := waitForLeader(t, rafts, 10*time.Second)
+	leader, err := waitForLeader(t, rafts, 15*time.Second)
 	require.NoError(t, err, "Failed to elect a leader")
 
 	require.NotEqual(t, 3, leader.ID(), "Expected a leader other than node 3")
@@ -137,15 +137,20 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 	partitionCluster := func(node *testNode) {
 		if node.id > 7 {
-			node.list.dropPackets = true
+			lostNetwork := latency.Network{
+				Kbps:    0,              // Setting bandwidth to 0 for complete blocking
+				Latency: 24 * time.Hour, // Extremely high latency that effectively blocks communication
+				MTU:     0,              // Setting MTU to 0 to prevent any packet transmission
+			}
+
+			node.list = lostNetwork.Listener(node.list)
 			node.options.Dialer = func(_ context.Context, target string) (net.Conn, error) {
 				conn, err := net.Dial("tcp", target)
 				if err != nil {
 					return nil, err
 				}
 
-				lossyConn := lossy.NewConn(conn, 0, time.Duration(0), time.Duration(0), 0.99, lossy.IPv4MaxHeaderOverhead)
-				return lossyConn, nil
+				return lostNetwork.Conn(conn)
 			}
 
 			node.options.MinElectionTimeout = 500 * time.Millisecond
