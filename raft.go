@@ -122,8 +122,10 @@ type Raft struct {
 	opts    Options
 	fsm     FSM
 
+	leaderMu sync.Mutex
 	leaderId uint64
 	state    raftState
+	stateCh  chan raftState
 
 	// Persistent state of the raft.
 	log    LogStore
@@ -164,6 +166,8 @@ func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, s
 		cluster:     c,
 		opts:        opts,
 		fsm:         fsm,
+		state:       Follower,
+		stateCh:     make(chan raftState, 1),
 		log:         logStr,
 		stable:      stableStr,
 		commitIndex: -1,
@@ -172,7 +176,6 @@ func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, s
 		fsmCh:       make(chan Task, 5),
 		applyCh:     make(chan *logTask, 10),
 	}
-	r.state = Follower
 	return r, nil
 }
 
@@ -275,7 +278,10 @@ func (r *Raft) getState() raftState {
 
 func (r *Raft) setState(s raftState) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	defer func() {
+		r.mu.Unlock()
+		r.stateCh <- s
+	}()
 	if r.state == s {
 		return
 	}
@@ -380,14 +386,15 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	} else if req.Term > r.fromStableStore(keyCurrentTerm) {
 		r.setStableStore(keyCurrentTerm, req.Term)
 	}
+
 	r.setState(Follower)
 
-	r.mu.Lock()
+	r.leaderMu.Lock()
 	if r.leaderId != req.LeaderId {
 		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.fromStableStore(keyCurrentTerm))
 		r.leaderId = req.LeaderId
 	}
-	r.mu.Unlock()
+	r.leaderMu.Unlock()
 
 	// validate that the PrevLogIndex is not at the starting default index value.
 	lastIdx := r.log.LastIndex()

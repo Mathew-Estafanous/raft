@@ -13,10 +13,14 @@ func (r *Raft) runFollowerState() {
 		select {
 		case <-r.timer.C:
 			r.setState(Candidate)
+			r.leaderMu.Lock()
 			r.leaderId = 0
+			r.leaderMu.Unlock()
 			return
 		case t := <-r.applyCh:
+			r.leaderMu.Lock()
 			n, err := r.cluster.GetNode(r.leaderId)
+			r.leaderMu.Unlock()
 			if err != nil {
 				t.respond(ErrFailedToStore)
 				break
@@ -51,6 +55,8 @@ func (r *Raft) runFollowerState() {
 			}
 		case <-r.snapTimer.C:
 			r.onSnapshot()
+		case <-r.stateCh:
+			break
 		case <-r.shutdownCh:
 			return
 		}

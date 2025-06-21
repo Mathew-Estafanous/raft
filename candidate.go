@@ -1,8 +1,6 @@
 package raft
 
 import (
-	"fmt"
-
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
 	"golang.org/x/net/context"
@@ -30,8 +28,8 @@ func (r *Raft) runCandidateState() {
 			vote := v.resp.(*pb.VoteResponse)
 
 			r.handleVoteResponse(vote)
-		case t := <-r.applyCh:
-			t.respond(fmt.Errorf("no leader assigned for term, try again later"))
+		case <-r.stateCh:
+			break
 		case <-r.shutdownCh:
 			cancel()
 			return

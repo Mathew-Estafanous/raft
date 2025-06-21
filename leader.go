@@ -30,9 +30,12 @@ func (r *Raft) runLeaderState() {
 		case <-r.shutdownCh:
 			respErr = ErrRaftShutdown
 		default:
-			n, err := r.cluster.GetNode(r.leaderId)
+			r.leaderMu.Lock()
+			id := r.leaderId
+			r.leaderMu.Unlock()
+			n, err := r.cluster.GetNode(id)
 			if err != nil {
-				r.logger.Printf("[BUG] Couldn't find a leader with ID %v", r.leaderId)
+				r.logger.Printf("[BUG] Couldn't find a leader with ID %v", id)
 			}
 			respErr = NewLeaderError(n.ID, n.Addr)
 		}
@@ -84,6 +87,8 @@ func (r *Raft) runLeaderState() {
 			}
 		case <-r.snapTimer.C:
 			r.onSnapshot()
+		case <-r.stateCh:
+			break
 		case <-r.shutdownCh:
 			return
 		}
