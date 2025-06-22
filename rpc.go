@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"log"
 	"net"
+	"time"
 
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/pb"
@@ -12,6 +13,9 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+var maxRetries = 3
+var retryDelay = 40 * time.Millisecond
 
 type Dialer func(context.Context, string) (net.Conn, error)
 
@@ -44,15 +48,27 @@ func sendRPC(req interface{}, target cluster.Node, ctx context.Context, config *
 	c := pb.NewRaftClient(conn)
 
 	var res interface{}
-	switch req := req.(type) {
-	case *pb.VoteRequest:
-		res, err = c.RequestVote(ctx, req)
-	case *pb.AppendEntriesRequest:
-		res, err = c.AppendEntry(ctx, req)
-	case *pb.ApplyRequest:
-		res, err = c.ForwardApply(ctx, req)
-	default:
-		log.Fatalf("[BUG] Could not determine RPC request of %v", req)
+	for i := 0; i < maxRetries; i++ {
+		switch req := req.(type) {
+		case *pb.VoteRequest:
+			res, err = c.RequestVote(ctx, req)
+		case *pb.AppendEntriesRequest:
+			res, err = c.AppendEntry(ctx, req)
+		case *pb.ApplyRequest:
+			res, err = c.ForwardApply(ctx, req)
+		default:
+			log.Fatalf("[BUG] Could not determine RPC request of %v", req)
+		}
+
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break
+		default:
+			time.Sleep(retryDelay)
+		}
 	}
 
 	return rpcResp{
