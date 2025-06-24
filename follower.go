@@ -31,7 +31,6 @@ func (r *Raft) runFollowerState() {
 				break
 			}
 
-			// TODO: replace background context with apply task ctx when added.
 			resp := sendRPC(&pb.ApplyRequest{
 				Command: t.log.Cmd,
 			}, n, context.Background(), r.opts.TlsConfig, r.opts.Dialer)
