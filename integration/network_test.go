@@ -3,8 +3,15 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
-	"math/rand"
+	"math/big"
+	mathrand "math/rand"
 	"net"
 	"slices"
 	"strconv"
@@ -52,7 +59,7 @@ func TestNetwork_RequestLatency(t *testing.T) {
 			require.NotNil(t, leader)
 
 			for i := 0; i < 5; i++ {
-				n := nodes[rand.Intn(len(nodes))]
+				n := nodes[mathrand.Intn(len(nodes))]
 				t.Logf("Sending command %d to node %d", i, n.id)
 				task := n.raft.Apply([]byte("cmd" + strconv.Itoa(i)))
 				require.NoError(t, task.Error())
@@ -172,4 +179,116 @@ func TestNetwork_PartitionRecovery(t *testing.T) {
 			continue
 		}
 	}
+}
+
+// generateTLSConfig creates a TLS configuration for testing with a self-signed certificate
+func generateTLSConfig(t *testing.T, id string, certPool *x509.CertPool) *tls.Config {
+	t.Helper()
+
+	// Generate a private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	// Create a certificate template
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName:   fmt.Sprintf("Raft-%v", id),
+			Organization: []string{"Test Raft Cluster"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	// Create the certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	require.NoError(t, err)
+
+	// Encode the certificate to PEM
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	// Create a certificate pool and add the certificate
+	certPool.AppendCertsFromPEM(certPEM)
+
+	// Create the TLS configuration
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{
+			{
+				Certificate: [][]byte{certDER},
+				PrivateKey:  privateKey,
+			},
+		},
+		RootCAs:   certPool,
+		ClientCAs: certPool,
+	}
+	return tlsConfig
+}
+
+func TestNetwork_TLSEncryption(t *testing.T) {
+	// Setup a cluster with TLS configuration
+	certPool := x509.NewCertPool()
+	tlsEnabled := func(node *testNode) {
+		node.options.TlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool)
+	}
+
+	nodes, startCluster := setupCluster(t, 3, tlsEnabled)
+	defer func() {
+		cleanupTestCluster(t, nodes)
+	}()
+
+	startCluster()
+
+	// Wait for a leader to be elected
+	leader, err := waitForLeader(t, nodes, 5*time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, leader)
+
+	t.Logf("Elected leader: Node %d", leader.ID())
+
+	// Apply commands to the cluster and verify they are replicated
+	for i := 0; i < 3; i++ {
+		cmdData := []byte(fmt.Sprintf("tls-cmd-%d", i))
+		task := leader.Apply(cmdData)
+		require.NoError(t, task.Error(), "Failed to apply command to leader")
+	}
+}
+
+func TestNetwork_mTLS_EnabledAuthentication(t *testing.T) {
+	certPool1 := x509.NewCertPool()
+	certPool2 := x509.NewCertPool()
+	tlsEnabled := func(node *testNode) {
+		node.options.ForwardApply = true
+		if node.id <= 2 {
+			node.options.TlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool1)
+		} else {
+			node.options.TlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool2)
+		}
+	}
+
+	nodes, startCluster := setupCluster(t, 3, tlsEnabled)
+	defer func() {
+		cleanupTestCluster(t, nodes)
+	}()
+
+	startCluster()
+
+	// Wait for a leader to be elected
+	leader, err := waitForLeader(t, nodes, 5*time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, leader)
+
+	// confirm that node 3 is unable to participate in the cluster
+	// because it is configured with a different TLS configuration
+	n3 := nodes[2]
+	task := n3.raft.Apply([]byte("cmd"))
+	err = task.Error()
+	t.Logf("Node 3 task response: %v", err)
+	require.Error(t, err, "Node 3 should not be able to apply commands with a different TLS configuration")
 }
