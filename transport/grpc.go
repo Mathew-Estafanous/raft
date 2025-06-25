@@ -1,4 +1,4 @@
-package raft
+package transport
 
 import (
 	"context"
@@ -7,8 +7,9 @@ import (
 	"net"
 	"time"
 
+	"github.com/Mathew-Estafanous/raft"
 	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
+	"github.com/Mathew-Estafanous/raft/transport/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -25,7 +26,7 @@ type GRPCTransport struct {
 	dialer     Dialer
 	maxRetries int
 	retryDelay time.Duration
-	handler    RequestHandler
+	handler    raft.RequestHandler
 }
 
 // GRPCTransportConfig holds configuration for the gRPC transport
@@ -37,7 +38,11 @@ type GRPCTransportConfig struct {
 }
 
 // NewGRPCTransport creates a new gRPC transport
-func NewGRPCTransport(listener net.Listener, config *GRPCTransportConfig) Transport {
+func NewGRPCTransport(listener net.Listener, config *GRPCTransportConfig) *GRPCTransport {
+	if config == nil {
+		config = &GRPCTransportConfig{}
+	}
+
 	if config.MaxRetries == 0 {
 		config.MaxRetries = 3
 	}
@@ -83,7 +88,7 @@ func (t *GRPCTransport) Stop() error {
 }
 
 // RegisterRequestHandler registers handlers for incoming requests
-func (t *GRPCTransport) RegisterRequestHandler(handler RequestHandler) error {
+func (t *GRPCTransport) RegisterRequestHandler(handler raft.RequestHandler) error {
 	if handler == nil {
 		return ErrNilHandler
 	}
@@ -92,7 +97,7 @@ func (t *GRPCTransport) RegisterRequestHandler(handler RequestHandler) error {
 }
 
 // SendVoteRequest sends a vote request to a target node
-func (t *GRPCTransport) SendVoteRequest(ctx context.Context, target cluster.Node, req *VoteRequest) (*VoteResponse, error) {
+func (t *GRPCTransport) SendVoteRequest(ctx context.Context, target cluster.Node, req *raft.VoteRequest) (*raft.VoteResponse, error) {
 	resp, err := t.sendRPC(&pb.VoteRequest{
 		Term:         req.Term,
 		CandidateId:  req.CandidateId,
@@ -104,14 +109,14 @@ func (t *GRPCTransport) SendVoteRequest(ctx context.Context, target cluster.Node
 	}
 
 	voteResp := resp.(*pb.VoteResponse)
-	return &VoteResponse{
+	return &raft.VoteResponse{
 		Term:        voteResp.Term,
 		VoteGranted: voteResp.VoteGranted,
 	}, nil
 }
 
 // SendAppendEntries sends append entries request to a target node
-func (t *GRPCTransport) SendAppendEntries(ctx context.Context, target cluster.Node, req *AppendEntriesRequest) (*AppendEntriesResponse, error) {
+func (t *GRPCTransport) SendAppendEntries(ctx context.Context, target cluster.Node, req *raft.AppendEntriesRequest) (*raft.AppendEntriesResponse, error) {
 	entries := make([]*pb.Entry, len(req.Entries))
 	for i, e := range req.Entries {
 		entries[i] = &pb.Entry{
@@ -137,7 +142,7 @@ func (t *GRPCTransport) SendAppendEntries(ctx context.Context, target cluster.No
 
 	appendResp := resp.(*pb.AppendEntriesResponse)
 
-	return &AppendEntriesResponse{
+	return &raft.AppendEntriesResponse{
 		Id:      appendResp.Id,
 		Term:    appendResp.Term,
 		Success: appendResp.Success,
@@ -145,7 +150,7 @@ func (t *GRPCTransport) SendAppendEntries(ctx context.Context, target cluster.No
 }
 
 // SendApplyRequest forwards an apply request to a target node
-func (t *GRPCTransport) SendApplyRequest(ctx context.Context, target cluster.Node, req *ApplyRequest) (*ApplyResponse, error) {
+func (t *GRPCTransport) SendApplyRequest(ctx context.Context, target cluster.Node, req *raft.ApplyRequest) (*raft.ApplyResponse, error) {
 	resp, err := t.sendRPC(&pb.ApplyRequest{
 		Command: req.Command,
 	}, target, ctx)
@@ -154,8 +159,8 @@ func (t *GRPCTransport) SendApplyRequest(ctx context.Context, target cluster.Nod
 	}
 
 	applyResp := resp.(*pb.ApplyResponse)
-	return &ApplyResponse{
-		Result: ApplyResult(applyResp.Result),
+	return &raft.ApplyResponse{
+		Result: raft.ApplyResult(applyResp.Result),
 	}, nil
 }
 
@@ -214,22 +219,56 @@ func (t *GRPCTransport) sendRPC(req proto.Message, target cluster.Node, ctx cont
 // grpcTransportServer implements the gRPC server for Raft transport
 type grpcTransportServer struct {
 	pb.UnimplementedRaftServer
-	r RequestHandler
+	r raft.RequestHandler
 }
 
 func (g *grpcTransportServer) ForwardApply(_ context.Context, request *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-	resp := g.r.onForwardApplyRequest(request)
-	return resp, nil
+	resp := g.r.OnForwardApplyRequest(&raft.ApplyRequest{
+		Command: request.Command,
+	})
+	return &pb.ApplyResponse{
+		Result: pb.ApplyResult(resp.Result),
+	}, nil
 }
 
 func (g *grpcTransportServer) RequestVote(_ context.Context, request *pb.VoteRequest) (*pb.VoteResponse, error) {
-	resp := g.r.onRequestVote(request)
-	return resp, nil
+	resp := g.r.OnRequestVote(&raft.VoteRequest{
+		Term:         request.Term,
+		CandidateId:  request.CandidateId,
+		LastLogIndex: request.LastLogIndex,
+		LastLogTerm:  request.LastLogTerm,
+	})
+	return &pb.VoteResponse{
+		Term:        resp.Term,
+		VoteGranted: resp.VoteGranted,
+	}, nil
 }
 
 func (g *grpcTransportServer) AppendEntry(_ context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-	resp := g.r.onAppendEntry(request)
-	return resp, nil
+	req := &raft.AppendEntriesRequest{
+		Term:         request.Term,
+		LeaderId:     request.LeaderId,
+		PrevLogIndex: request.PrevLogIndex,
+		PrevLogTerm:  request.PrevLogTerm,
+		Entries:      make([]*raft.Entry, len(request.Entries)),
+		LeaderCommit: request.LeaderCommit,
+	}
+	for i, e := range request.Entries {
+		req.Entries[i] = &raft.Entry{
+			Term:  e.Term,
+			Index: e.Index,
+			Data:  e.Data,
+			Type:  e.Type,
+		}
+	}
+
+	resp := g.r.OnAppendEntry(req)
+
+	return &pb.AppendEntriesResponse{
+		Id:      resp.Id,
+		Term:    resp.Term,
+		Success: resp.Success,
+	}, nil
 }
 
 var (

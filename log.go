@@ -2,8 +2,6 @@ package raft
 
 import (
 	"fmt"
-
-	"github.com/Mathew-Estafanous/raft/pb"
 )
 
 type logType byte
@@ -52,7 +50,7 @@ func logsToEntries(logs []*Log) []*Entry {
 	return entries
 }
 
-func entriesToLogs(entries []*pb.Entry) []*Log {
+func entriesToLogs(entries []*Entry) []*Log {
 	logs := make([]*Log, 0, len(entries))
 	for _, e := range entries {
 		logs = append(logs, &Log{

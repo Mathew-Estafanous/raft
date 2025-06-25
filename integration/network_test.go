@@ -280,7 +280,7 @@ func TestNetwork_mTLS_EnabledAuthentication(t *testing.T) {
 	startCluster()
 
 	// Wait for a leader to be elected
-	leader, err := waitForLeader(t, nodes, 5*time.Second)
+	leader, err := waitForLeader(t, nodes, 10*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, leader)
 

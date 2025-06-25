@@ -9,6 +9,7 @@ import (
 	"github.com/Mathew-Estafanous/raft"
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/store"
+	"github.com/Mathew-Estafanous/raft/transport"
 	"github.com/stretchr/testify/require"
 
 	"sync"
@@ -62,7 +63,7 @@ type testNode struct {
 	stableStore raft.StableStore
 	list        net.Listener
 	options     *raft.Options
-	grpcConfig  *raft.GRPCTransportConfig
+	grpcConfig  *transport.GRPCTransportConfig
 }
 
 type clusterOptFunc func(node *testNode)
@@ -90,7 +91,7 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 		list, err := net.Listen("tcp", node.Addr)
 		require.NoError(t, err)
 
-		grpcConfig := &raft.GRPCTransportConfig{}
+		grpcConfig := &transport.GRPCTransportConfig{}
 
 		testOpts := raft.Options{
 			MinElectionTimeout: 2 * time.Second,
@@ -116,9 +117,9 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 			opt(tNode)
 		}
 
-		transport := raft.NewGRPCTransport(tNode.list, grpcConfig)
+		grpcTransport := transport.NewGRPCTransport(tNode.list, grpcConfig)
 
-		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore, transport)
+		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore, grpcTransport)
 		require.NoError(t, err)
 
 		tNode.raft = raftInst

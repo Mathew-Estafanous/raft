@@ -127,7 +127,7 @@ func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	matchIndex := max(0, r.matchIndex[n.ID]+1-idxOffset)
 	nextIndex := max(0, nextIdx-idxOffset)
 	if matchIndex > nextIndex {
-		logs = logs[nextIndex-1 : nextIndex]
+		logs = logs[max(0, nextIndex-1):nextIndex]
 	} else {
 		logs = logs[matchIndex:nextIndex]
 	}
