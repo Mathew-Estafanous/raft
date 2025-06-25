@@ -205,9 +205,10 @@ func (t *GRPCTransport) sendRPC(req proto.Message, target cluster.Node, ctx cont
 		if err == nil {
 			break
 		}
+
 		select {
 		case <-ctx.Done():
-			break
+			return nil, ctx.Err()
 		default:
 			time.Sleep(t.retryDelay)
 		}
