@@ -21,23 +21,12 @@ var (
 	// the raft instance has shutdown.
 	ErrRaftShutdown = errors.New("raft has already shutdown")
 
-	// DefaultOpts provide a general baseline configuration setting for the raft
-	// node such as election timeouts and log threshold.
 	DefaultOpts = Options{
-		MinElectionTimeout: 150 * time.Millisecond,
-		MaxElectionTimout:  300 * time.Millisecond,
-		HeartBeatTimout:    100 * time.Millisecond,
-		SnapshotTimer:      1 * time.Second,
-		LogThreshold:       200,
-		ForwardApply:       true,
-	}
-
-	SlowOpts = Options{
 		MinElectionTimeout: 1 * time.Second,
 		MaxElectionTimout:  3 * time.Second,
 		HeartBeatTimout:    500 * time.Millisecond,
 		SnapshotTimer:      8 * time.Second,
-		LogThreshold:       5,
+		LogThreshold:       100,
 		ForwardApply:       true,
 	}
 

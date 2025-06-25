@@ -1,7 +1,5 @@
 github.com/Mathew-Estafanous/memlist v0.2.1 h1:C9bbI88lGSfm6e2g5bFyfikal/P5WCKv7xuWaDcWw3s=
 github.com/Mathew-Estafanous/memlist v0.2.1/go.mod h1:PfWlXdIdBeKe8NgMtlDk0HDrD3r7T0ACmya3yhCEkcU=
-github.com/cevatbarisyilmaz/lossy v0.2.1 h1:OIGeJYdCHlVIRameppxnuihGOBZzY4jyNYUEQGrpc7Y=
-github.com/cevatbarisyilmaz/lossy v0.2.1/go.mod h1:POUoU6pJUN+KSECSU/gPwCdf+xf9GUlW2azwDL3qtEA=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/go-logr/logr v1.4.2 h1:6pFjapn8bFcIbiKo3XT4j/BhANplGihG6tvd+8rYgrY=
