@@ -60,7 +60,7 @@ func main() {
 
 func makeAndRunKV(raftAddr string, id uint64, c cluster.Cluster, raftStore *store.BoltStore, wg *sync.WaitGroup) {
 	kv := NewStore()
-	r, err := raft.New(c, id, raft.DefaultOpts, kv, raftStore, raftStore)
+	r, err := raft.New(c, id, raft.DefaultOpts, kv, raftStore, raftStore, nil)
 	kv.r = r
 	if err != nil {
 		log.Fatalln(err)

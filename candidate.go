@@ -2,7 +2,6 @@ package raft
 
 import (
 	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
 	"golang.org/x/net/context"
 )
 
@@ -25,9 +24,8 @@ func (r *Raft) runCandidateState() {
 				r.logger.Printf("A vote request has failed: %v", v.error)
 				break
 			}
-			vote := v.resp.(*pb.VoteResponse)
 
-			r.handleVoteResponse(vote)
+			r.handleVoteResponse(v.resp)
 		case <-r.stateCh:
 			break
 		case <-r.shutdownCh:
@@ -41,10 +39,10 @@ func (r *Raft) runCandidateState() {
 // in the Cluster and return results in a vote channel.
 func (r *Raft) sendVoteRequests(ctx context.Context) {
 	nodes := r.cluster.AllNodes()
-	r.voteCh = make(chan rpcResp, len(nodes))
+	r.voteCh = make(chan rpcResponse[*VoteResponse], len(nodes))
 	r.votesNeeded = r.cluster.Quorum() - 1
 	r.setStableStore(keyVotedFor, r.id)
-	req := &pb.VoteRequest{
+	req := &VoteRequest{
 		Term:         r.fromStableStore(keyCurrentTerm),
 		CandidateId:  r.id,
 		LastLogIndex: r.log.LastIndex(),
@@ -57,18 +55,22 @@ func (r *Raft) sendVoteRequests(ctx context.Context) {
 		}
 
 		// Make RPC request in a separate goroutine to prevent blocking operations.
-		go func(ctx context.Context, n cluster.Node, opts Options, voteCh chan rpcResp) {
-			res := sendRPC(req, n, ctx, opts.TlsConfig, opts.Dialer)
+		go func(ctx context.Context, n cluster.Node, voteCh chan rpcResponse[*VoteResponse], req *VoteRequest) {
+			resp, err := r.transport.SendVoteRequest(ctx, n, req)
+			res := rpcResponse[*VoteResponse]{
+				resp:  resp,
+				error: err,
+			}
 			select {
 			case <-ctx.Done():
 				return
 			case voteCh <- res:
 			}
-		}(ctx, v, r.opts, r.voteCh)
+		}(ctx, v, r.voteCh, req)
 	}
 }
 
-func (r *Raft) handleVoteResponse(vote *pb.VoteResponse) {
+func (r *Raft) handleVoteResponse(vote *VoteResponse) {
 	// If term of peer is greater than go back to follower
 	// and update current term to the peer's term.
 	if vote.Term > r.fromStableStore(keyCurrentTerm) {

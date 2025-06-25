@@ -7,7 +7,7 @@ type FSM interface {
 	// should then be applied upon the state of the fsm.
 	Apply(data []byte) error
 
-	// Snapshot will create a byte slice representation of all the required data
+	// LogSnapshot will create a byte slice representation of all the required data
 	// to represent the current state of the machine.
 	Snapshot() ([]byte, error)
 

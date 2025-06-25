@@ -9,8 +9,8 @@ import (
 type logType byte
 
 var (
-	Entry    logType = 'E'
-	Snapshot logType = 'S'
+	LogEntry    logType = 'E'
+	LogSnapshot logType = 'S'
 )
 
 // Log entries represent commands that alter the state of the FSM.
@@ -39,10 +39,10 @@ type logTask struct {
 	log *Log
 }
 
-func logsToEntries(logs []*Log) []*pb.Entry {
-	entries := make([]*pb.Entry, 0, len(logs))
+func logsToEntries(logs []*Log) []*Entry {
+	entries := make([]*Entry, 0, len(logs))
 	for _, l := range logs {
-		entries = append(entries, &pb.Entry{
+		entries = append(entries, &Entry{
 			Type:  []byte{byte(l.Type)},
 			Term:  l.Term,
 			Index: l.Index,

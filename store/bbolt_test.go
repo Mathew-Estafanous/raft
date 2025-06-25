@@ -134,19 +134,19 @@ func TestBoltStore_LastIndex_LastTerm(t *testing.T) {
 
 	logs := []*raft.Log{
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 1,
 			Term:  1,
 			Cmd:   []byte("command1"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 2,
 			Term:  1,
 			Cmd:   []byte("command2"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 3,
 			Term:  2,
 			Cmd:   []byte("command3"),
@@ -165,19 +165,19 @@ func TestBoltStore_GetLog(t *testing.T) {
 
 	logs := []*raft.Log{
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 1,
 			Term:  1,
 			Cmd:   []byte("command1"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 2,
 			Term:  1,
 			Cmd:   []byte("command2"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 3,
 			Term:  2,
 			Cmd:   []byte("command3"),
@@ -252,19 +252,19 @@ func TestBoltStore_AllLogs(t *testing.T) {
 	// Add some logs
 	inputLogs := []*raft.Log{
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 1,
 			Term:  1,
 			Cmd:   []byte("command1"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 2,
 			Term:  1,
 			Cmd:   []byte("command2"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 3,
 			Term:  2,
 			Cmd:   []byte("command3"),
@@ -295,13 +295,13 @@ func TestBoltStore_AppendLogs(t *testing.T) {
 
 	logs1 := []*raft.Log{
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 1,
 			Term:  1,
 			Cmd:   []byte("command1"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 2,
 			Term:  1,
 			Cmd:   []byte("command2"),
@@ -314,13 +314,13 @@ func TestBoltStore_AppendLogs(t *testing.T) {
 
 	logs2 := []*raft.Log{
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 3,
 			Term:  2,
 			Cmd:   []byte("command3"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 4,
 			Term:  2,
 			Cmd:   []byte("command4"),
@@ -339,31 +339,31 @@ func TestBoltStore_AppendLogs(t *testing.T) {
 func TestBoltStore_DeleteRange(t *testing.T) {
 	logs := []*raft.Log{
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 1,
 			Term:  1,
 			Cmd:   []byte("command1"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 2,
 			Term:  1,
 			Cmd:   []byte("command2"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 3,
 			Term:  2,
 			Cmd:   []byte("command3"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 4,
 			Term:  2,
 			Cmd:   []byte("command4"),
 		},
 		{
-			Type:  raft.Entry,
+			Type:  raft.LogEntry,
 			Index: 5,
 			Term:  3,
 			Cmd:   []byte("command5"),
