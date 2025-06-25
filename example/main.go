@@ -17,6 +17,7 @@ import (
 	"github.com/Mathew-Estafanous/raft"
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"github.com/Mathew-Estafanous/raft/store"
+	"github.com/Mathew-Estafanous/raft/transport"
 )
 
 // [exe] <MemberPort> <ID> <Address* (of another node in the cluster)>
@@ -60,14 +61,18 @@ func main() {
 
 func makeAndRunKV(raftAddr string, id uint64, c cluster.Cluster, raftStore *store.BoltStore, wg *sync.WaitGroup) {
 	kv := NewStore()
-	r, err := raft.New(c, id, raft.DefaultOpts, kv, raftStore, raftStore, nil)
+
+	list, err := net.Listen("tcp", raftAddr)
+	grpcTransport := transport.NewGRPCTransport(list, nil)
+
+	r, err := raft.New(c, id, raft.DefaultOpts, kv, raftStore, raftStore, grpcTransport)
 	kv.r = r
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	go func() {
-		if err := r.ListenAndServe(raftAddr); err != nil {
+		if err := r.Serve(); err != nil {
 			log.Println(err)
 		}
 	}()

@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
 )
 
 var (
@@ -162,34 +160,10 @@ func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, s
 	}
 
 	// Register the Raft instance as the request handler
-	if err := transport.RegisterRequestHandler(r); err != nil {
+	if err := transport.RegisterRequestHandler(&rpcHandler{raft: r}); err != nil {
 		return nil, fmt.Errorf("failed to register request handler: %v", err)
 	}
 	return r, nil
-}
-
-// ListenAndServe will start the raft instance and listen using TCP. The listening
-// on the address that is provided as an argument. Note that serving the raft instance
-// is the same as Serve, so it is best to look into that method as well.
-func (r *Raft) ListenAndServe(addr string) error {
-	lis, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-
-	// If no transport was provided during initialization, create a default gRPC transport
-	if r.transport == nil {
-		config := &GRPCTransportConfig{
-			MaxRetries: 3,
-			RetryDelay: 40 * time.Millisecond,
-		}
-		r.transport = NewGRPCTransport(lis, config)
-		if err := r.transport.RegisterRequestHandler(r); err != nil {
-			return fmt.Errorf("failed to register request handler: %v", err)
-		}
-	}
-
-	return r.Serve()
 }
 
 // Serve (as the name suggests) will start up the raft instance and listen using
@@ -344,9 +318,9 @@ func (r *Raft) setStableStore(key []byte, val uint64) {
 	}
 }
 
-func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
+func (r *Raft) onRequestVote(req *VoteRequest) *VoteResponse {
 	r.timer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
-	resp := &pb.VoteResponse{
+	resp := &VoteResponse{
 		Term:        r.fromStableStore(keyCurrentTerm),
 		VoteGranted: false,
 	}
@@ -384,9 +358,9 @@ func (r *Raft) onRequestVote(req *pb.VoteRequest) *pb.VoteResponse {
 	return resp
 }
 
-func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
+func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 	r.timer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
-	resp := &pb.AppendEntriesResponse{
+	resp := &AppendEntriesResponse{
 		Id:      r.id,
 		Term:    r.fromStableStore(keyCurrentTerm),
 		Success: false,
@@ -490,16 +464,16 @@ func (r *Raft) onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResp
 	return resp
 }
 
-func (r *Raft) onForwardApplyRequest(req *pb.ApplyRequest) *pb.ApplyResponse {
+func (r *Raft) onForwardApplyRequest(req *ApplyRequest) *ApplyResponse {
 	task := r.Apply(req.Command)
 	if err := task.Error(); err != nil {
-		return &pb.ApplyResponse{
-			Result: pb.ApplyResult_Failed,
+		return &ApplyResponse{
+			Result: Failed,
 		}
 	}
 
-	return &pb.ApplyResponse{
-		Result: pb.ApplyResult_Committed,
+	return &ApplyResponse{
+		Result: Committed,
 	}
 }
 

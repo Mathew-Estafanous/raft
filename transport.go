@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
 )
 
 type Entry struct {
@@ -79,7 +78,25 @@ type Transport interface {
 
 // RequestHandler processes incoming requests
 type RequestHandler interface {
-	onAppendEntry(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse
-	onRequestVote(req *pb.VoteRequest) *pb.VoteResponse
-	onForwardApplyRequest(req *pb.ApplyRequest) *pb.ApplyResponse
+	OnAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse
+	OnRequestVote(req *VoteRequest) *VoteResponse
+	OnForwardApplyRequest(req *ApplyRequest) *ApplyResponse
+}
+
+// rpcHandler is used as an adapter to implement RequestHandler for a Raft
+// while ensuring methods remain private.
+type rpcHandler struct {
+	raft *Raft
+}
+
+func (r *rpcHandler) OnAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
+	return r.raft.onAppendEntry(req)
+}
+
+func (r *rpcHandler) OnRequestVote(req *VoteRequest) *VoteResponse {
+	return r.raft.onRequestVote(req)
+}
+
+func (r *rpcHandler) OnForwardApplyRequest(req *ApplyRequest) *ApplyResponse {
+	return r.raft.onForwardApplyRequest(req)
 }
