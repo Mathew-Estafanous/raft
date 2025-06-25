@@ -23,57 +23,89 @@ In the [example](https://github.com/Mathew-Estafanous/raft/tree/main/example) us
 that implements the [FSM](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#FSM) interface. Now whenever the raft
 node needs to apply a task to the FSM, it will apply those tasks through the provided API.
 ```go
-// kvStore type implements all the methods required for the FSM.
-type kvStore struct {
+// KvStore type implements all the methods required for the FSM.
+type KvStore struct {
 	r    *raft.Raft
 	data map[string]string
 }
-```
 
-The client also needs to create their own implementation the [LogStore](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#LogStore) 
-and [StableStore](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#StableStore). In the example use-case we used the
-provided [In-Memory Store](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#InMemStore); **however,** it's important to
-note that in-memory solutions are NOT meant for actual production use.
-```go
-memStore := raft.NewMemStore()
-// add some data to that memory store if needed
-```
+func (k *KvStore) Apply(data []byte) error {
+	// Apply the command to the FSM
+	return nil
+}
 
-All raft nodes are part of a cluster. A cluster is a group of nodes and their associated addresses. A cluster is initialized
-by using a configuration file. Configuration files are json formatted with a similar format of, ``"id": {id: int, addr: string}``
-```json
-{
-  "1": {
-    "id": 1,
-    "addr": ":6001"
-  }
+func (k *KvStore) Snapshot() ([]byte, error) {
+	// Create a snapshot of the FSM state
+	return nil, nil
+}
+
+func (k *KvStore) Restore(cmd []byte) error {
+	// Restore the FSM state from a snapshot
+	return nil
 }
 ```
-Open the config file and use it to initialize a cluster.
+
+The client also needs to create their own implementation of the [LogStore](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#LogStore) 
+and [StableStore](https://pkg.go.dev/github.com/Mathew-Estafanous/raft#StableStore). You can use the provided in-memory store for testing,
+but for production use, consider using the BoltDB implementation in the store package.
+```go
+// For testing
+memStore := raft.NewMemStore()
+
+// For production
+boltStore, err := store.NewBoltStore("/path/to/data")
+if err != nil {
+    log.Fatalln(err)
+}
+defer boltStore.Close()
+```
+
+All raft nodes are part of a cluster. A cluster is a group of nodes and their associated addresses. There are two types of clusters:
+
+1. **Static Cluster** - A fixed set of nodes that are known from the start. Initialized using a JSON configuration file:
 ```go
 f, err := os.Open("config.json")
 if err != nil {
     log.Fatalln(err)
 }
-c, err := raft.NewClusterWithConfig(f)
+c, err := cluster.NewClusterWithConfig(f)
 if err != nil {
+    log.Fatalln(err)
+}
+```
+
+2. **Dynamic Cluster** - Allows nodes to join and leave the cluster at runtime:
+```go
+c, err := cluster.NewDynamicCluster(ip, uint16(memPort), cluster.Node{ID: uint64(id), Addr: raftAddr})
+if err != nil {
+    log.Fatalln(err)
+}
+
+// Join an existing cluster
+if err = c.Join(otherNodeAddr); err != nil {
     log.Fatalln(err)
 }
 ```
 
 Once all of the dependencies are initialized, we can now create the raft node and start serving it on the cluster.
 ```go
-r, err := raft.New(raftID, cluster, option, FSM, memStore, memStore)
+r, err := raft.New(c, id, raft.SlowOpts, fsm, boltStore, boltStore)
 if err != nil {
-	log.Fatalf(err)
+    log.Fatalln(err)
 }
 go func() {
-    if err := r.ListenAndServe(":6001"); err != nil {
-    log.Println(err)
+    if err := r.ListenAndServe(raftAddr); err != nil {
+        log.Println(err)
     }
 }()
 
-// regular operation of the application as the raft node runs in a different goroutine.
+// Apply a command to the FSM through the raft node
+task := r.Apply([]byte("command"))
+if err := task.Error(); err != nil {
+    log.Println(err)
+}
+
+// Regular operation of the application as the raft node runs in a different goroutine.
 ```
 
 ## In Action (Demo)
@@ -88,15 +120,37 @@ other nodes.
 
 ![raft-data-populate](https://user-images.githubusercontent.com/56979977/127257693-03ec9b7c-f9e8-4756-96be-0728f95e92ab.gif)
 
-## Features
-List of features that have been developed.
-- [X] Raft cluster leader elections.
-- [X] Log committing & replication.
-- [X] Fault tolerance of N/2 failures. (With N being total # of nodes.)
-- [X] Extendable log/stable store interface that lets the client define how they want the
-data to be persistently stored. (An In-Memory implementation is provided for testing.)
-- [X] Log snapshots which compact a given number of logs into one log entry. Enabling state to
-be saved while also limiting the length of the log entries.
+## Installation
+
+To use this library in your Go project:
+
+```bash
+go get github.com/Mathew-Estafanous/raft
+```
+
+This library requires Go 1.23 or later.
+
+## Storage Options
+
+This implementation provides multiple storage options:
+
+1. **In-Memory Store** - Provided in the main package, useful for testing but not for production use.
+   ```go
+   memStore := raft.NewMemStore()
+   ```
+
+2. **BoltDB Store** - A persistent storage implementation using BoltDB (bbolt), suitable for production use.
+   ```go
+   boltStore, err := store.NewBoltStore("/path/to/data")
+   if err != nil {
+       log.Fatalln(err)
+   }
+   defer boltStore.Close()
+   ```
+
+## Contributing
+
+Contributions are welcome! Feel free to open issues or submit pull requests.
 
 ## Connect & Contact
 **Email** - mathewestafanous13@gmail.com
