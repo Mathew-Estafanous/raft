@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/Mathew-Estafanous/raft/cluster"
-	"github.com/Mathew-Estafanous/raft/pb"
 )
 
 func (r *Raft) runLeaderState() {
@@ -134,7 +133,7 @@ func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	}
 
 	r.mu.Lock()
-	req := &pb.AppendEntriesRequest{
+	req := &AppendEntriesRequest{
 		Term:         r.fromStableStore(keyCurrentTerm),
 		LeaderId:     r.id,
 		LeaderCommit: r.commitIndex,
@@ -144,22 +143,27 @@ func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	}
 	r.mu.Unlock()
 
-	resp := sendRPC(req, n, context.Background(), r.opts.TlsConfig, r.opts.Dialer)
-	r.appendEntryCh <- appendEntryResp{resp, n.ID}
+	appendResp, err := r.transport.SendAppendEntries(context.Background(), n, req)
+	r.appendEntryCh <- appendEntryResp{
+		rpcResponse: rpcResponse[*AppendEntriesResponse]{
+			resp:  appendResp,
+			error: err,
+		},
+		nodeId: n.ID,
+	}
 }
 
 func (r *Raft) handleAppendResp(ae appendEntryResp) {
-	resp := ae.resp.(*pb.AppendEntriesResponse)
-	if resp.Term > r.fromStableStore(keyCurrentTerm) {
+	if ae.resp.Term > r.fromStableStore(keyCurrentTerm) {
 		r.setState(Follower)
-		r.setStableStore(keyCurrentTerm, resp.Term)
+		r.setStableStore(keyCurrentTerm, ae.resp.Term)
 		r.setStableStore(keyVotedFor, 0)
 		return
 	}
 
 	r.indexMu.Lock()
 	defer r.indexMu.Unlock()
-	if resp.Success {
+	if ae.resp.Success {
 		r.matchIndex[ae.nodeId] = r.nextIndex[ae.nodeId] - 1
 		r.nextIndex[ae.nodeId] = min(r.log.LastIndex()+1, r.nextIndex[ae.nodeId]+1)
 	} else {
@@ -211,6 +215,6 @@ func majorityMatch(N int64, cluster cluster.Cluster, matchIndex map[uint64]int64
 }
 
 type appendEntryResp struct {
-	rpcResp
+	rpcResponse[*AppendEntriesResponse]
 	nodeId uint64
 }

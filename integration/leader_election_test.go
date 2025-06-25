@@ -85,13 +85,13 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 	populateLogs := func(node *testNode) {
 		logs := []*raft.Log{
 			{
-				Type:  raft.Entry,
+				Type:  raft.LogEntry,
 				Index: 1,
 				Term:  1,
 				Cmd:   []byte("cmd1"),
 			},
 			{
-				Type:  raft.Entry,
+				Type:  raft.LogEntry,
 				Index: 2,
 				Term:  2,
 				Cmd:   []byte("cmd2"),

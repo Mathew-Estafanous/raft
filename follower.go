@@ -3,8 +3,6 @@ package raft
 import (
 	"context"
 	"fmt"
-
-	"github.com/Mathew-Estafanous/raft/pb"
 )
 
 func (r *Raft) runFollowerState() {
@@ -31,25 +29,19 @@ func (r *Raft) runFollowerState() {
 				break
 			}
 
-			resp := sendRPC(&pb.ApplyRequest{
+			applyResp, err := r.transport.SendApplyRequest(context.Background(), n, &ApplyRequest{
 				Command: t.log.Cmd,
-			}, n, context.Background(), r.opts.TlsConfig, r.opts.Dialer)
-			if resp.error != nil {
-				r.logger.Printf("Failed to forward apply request to leader: %v", resp.error)
-				t.respond(fmt.Errorf("couldn't apply request: %v", resp.error))
-				break
-			}
-			applyResp, ok := resp.resp.(*pb.ApplyResponse)
-			if !ok {
-				r.logger.Println("[BUG] Couldn't assert apply response type.")
-				t.respond(ErrFailedToStore)
+			})
+			if err != nil {
+				r.logger.Printf("Failed to forward apply request to leader: %v", err)
+				t.respond(fmt.Errorf("couldn't apply request: %v", err))
 				break
 			}
 
 			switch applyResp.Result {
-			case pb.ApplyResult_Committed:
+			case Committed:
 				t.respond(nil)
-			case pb.ApplyResult_Failed:
+			case Failed:
 				t.respond(ErrFailedToStore)
 			}
 		case <-r.snapTimer.C:

@@ -130,7 +130,7 @@ type Raft struct {
 
 	// Candidate state variables
 	votesNeeded int
-	voteCh      chan rpcResp
+	voteCh      chan rpcResponse[*VoteResponse]
 
 	// Leader state variables
 	heartbeat     *time.Timer
@@ -139,10 +139,13 @@ type Raft struct {
 	nextIndex     map[uint64]int64
 	matchIndex    map[uint64]int64
 	tasks         map[int64]*logTask
+
+	// Transport layer
+	transport Transport
 }
 
 // New creates a new raft node and registers it with the provided Cluster.
-func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore) (*Raft, error) {
+func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, stableStr StableStore, transport Transport) (*Raft, error) {
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
@@ -164,6 +167,12 @@ func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, s
 		shutdownCh:  make(chan bool),
 		fsmCh:       make(chan Task, 5),
 		applyCh:     make(chan *logTask, 10),
+		transport:   transport,
+	}
+
+	// Register the Raft instance as the request handler
+	if err := transport.RegisterRequestHandler(r); err != nil {
+		return nil, fmt.Errorf("failed to register request handler: %v", err)
 	}
 	return r, nil
 }
@@ -176,27 +185,52 @@ func (r *Raft) ListenAndServe(addr string) error {
 	if err != nil {
 		return err
 	}
-	return r.Serve(lis)
+
+	// If no transport was provided during initialization, create a default gRPC transport
+	if r.transport == nil {
+		config := &GRPCTransportConfig{
+			TLSConfig:  r.opts.TlsConfig,
+			Dialer:     r.opts.Dialer,
+			MaxRetries: 3,
+			RetryDelay: 40 * time.Millisecond,
+		}
+		r.transport = NewGRPCTransport(lis, config)
+		if err := r.transport.RegisterRequestHandler(r); err != nil {
+			return fmt.Errorf("failed to register request handler: %v", err)
+		}
+	}
+
+	return r.Serve()
 }
 
 // Serve (as the name suggests) will start up the raft instance and listen using
-// the provided the net.Listener.
+// the transport layer.
 //
 // This is a blocking operation and will only return when the raft instance has Shutdown
 // or a fatal error has occurred.
-func (r *Raft) Serve(l net.Listener) error {
-	s := newServer(r, l, r.opts.TlsConfig)
-	defer s.shutdown()
-	r.logger.Printf("Starting raft on %v", l.Addr().String())
+func (r *Raft) Serve() error {
+	if r.transport == nil {
+		return fmt.Errorf("no transport configured, use ListenAndServe or provide a transport during initialization")
+	}
+
+	r.logger.Println("Starting raft instance")
+
+	// Start the transport in a separate goroutine
 	go func() {
-		if err := s.serve(); err != nil {
-			r.logger.Printf("gRPC server crashed unexpectedly: %v", err)
+		if err := r.transport.Start(); err != nil {
+			r.logger.Printf("Transport layer crashed unexpectedly: %v", err)
 			r.Shutdown()
 		}
 	}()
 
 	go r.runFSM()
 	r.run()
+
+	// Stop the transport when we're done
+	if err := r.transport.Stop(); err != nil {
+		r.logger.Printf("Error stopping transport: %v", err)
+	}
+
 	return nil
 }
 
@@ -215,7 +249,7 @@ func (r *Raft) Shutdown() {
 func (r *Raft) Apply(cmd []byte) Task {
 	logT := &logTask{
 		log: &Log{
-			Type: Entry,
+			Type: LogEntry,
 			Cmd:  cmd,
 		},
 		errorTask: errorTask{errCh: make(chan error, 1)},
@@ -491,7 +525,7 @@ func (r *Raft) applyLogs() {
 		}
 
 		switch l.Type {
-		case Snapshot:
+		case LogSnapshot:
 			restore := &fsmRestore{
 				cmd:       l.Cmd,
 				errorTask: errorTask{errCh: make(chan error)},
@@ -501,7 +535,7 @@ func (r *Raft) applyLogs() {
 			if restore.Error() != nil {
 				r.logger.Fatalln("Could not successfully restore log snapshot to FSM")
 			}
-		case Entry:
+		case LogEntry:
 			update := &fsmUpdate{
 				cmd:       l.Cmd,
 				errorTask: errorTask{errCh: make(chan error)},
@@ -550,7 +584,7 @@ func (r *Raft) onSnapshot() {
 
 	// Use the FSM state in a snapshot log that is added to the Log persistence storage.
 	snapLog := &Log{
-		Type:  Snapshot,
+		Type:  LogSnapshot,
 		Index: r.lastApplied,
 		Term:  r.fromStableStore(keyCurrentTerm),
 		Cmd:   snapTask.state,
@@ -565,7 +599,7 @@ func (r *Raft) onSnapshot() {
 	}
 
 	if logs, err := r.log.AllLogs(); err == nil {
-		r.logger.Printf("Snapshot Logs: %v", logs)
+		r.logger.Printf("LogSnapshot Logs: %v", logs)
 	}
 }
 

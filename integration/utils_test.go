@@ -89,6 +89,9 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 		list, err := net.Listen("tcp", node.Addr)
 		require.NoError(t, err)
 
+		grpcConfig := &raft.GRPCTransportConfig{}
+		raft.NewGRPCTransport(list, grpcConfig)
+
 		testOpts := raft.Options{
 			MinElectionTimeout: 2 * time.Second,
 			MaxElectionTimout:  4 * time.Second,
@@ -112,7 +115,7 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 			opt(tNode)
 		}
 
-		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore)
+		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore, nil)
 		require.NoError(t, err)
 
 		tNode.raft = raftInst
@@ -122,10 +125,16 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 	startClusterFunc := func() {
 		for _, n := range nodes {
 			go func(raft *raft.Raft, list net.Listener) {
-				n := staticCluster.AllNodes()[raft.ID()]
-				err := raft.Serve(list)
+				// Get the address from the listener
+				addr := list.Addr().String()
+
+				// Close the existing listener
+				list.Close()
+
+				// Use ListenAndServe which will automatically create a transport
+				err := raft.ListenAndServe(addr)
 				if err != nil {
-					t.Logf("Node %d stopped with error: %v", n.ID, err)
+					t.Logf("Node %d stopped with error: %v", n.id, err)
 				}
 			}(n.raft, n.list)
 		}
