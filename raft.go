@@ -1,7 +1,6 @@
 package raft
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -82,14 +81,6 @@ type Options struct {
 	// LogThreshold represents the total number of log entries that should be reached
 	// before log compaction (snapshot) is triggered. A threshold of 0 means no snapshot creation.
 	LogThreshold uint64
-
-	// TlsConfig when given is used to encrypt communication among raft nodes. TLS is not enabled
-	// if config is left as nil.
-	TlsConfig *tls.Config
-
-	// Dialer is used by the raft's gRPC client to create a connection to the resolving target address.
-	// Optionally Use this if you'd like to control the underlying connection of the gRPC client.
-	Dialer Dialer
 
 	// ForwardApply enables follower nodes to automatically forward apply requests to the leader
 	// and response to the request without the caller needing to know who is a leader. Otherwise,
@@ -189,8 +180,6 @@ func (r *Raft) ListenAndServe(addr string) error {
 	// If no transport was provided during initialization, create a default gRPC transport
 	if r.transport == nil {
 		config := &GRPCTransportConfig{
-			TLSConfig:  r.opts.TlsConfig,
-			Dialer:     r.opts.Dialer,
 			MaxRetries: 3,
 			RetryDelay: 40 * time.Millisecond,
 		}

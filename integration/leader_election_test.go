@@ -144,7 +144,7 @@ func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 			}
 
 			node.list = lostNetwork.Listener(node.list)
-			node.options.Dialer = func(_ context.Context, target string) (net.Conn, error) {
+			node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
 				conn, err := net.Dial("tcp", target)
 				if err != nil {
 					return nil, err

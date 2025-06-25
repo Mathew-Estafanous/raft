@@ -37,7 +37,7 @@ func TestNetwork_RequestLatency(t *testing.T) {
 			networkDelay := func(node *testNode) {
 				node.options.ForwardApply = true
 				node.list = tt.latency.Listener(node.list)
-				node.options.Dialer = func(_ context.Context, target string) (net.Conn, error) {
+				node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
 					conn, err := net.Dial("tcp", target)
 					if err != nil {
 						return nil, err
@@ -79,7 +79,7 @@ func TestNetwork_PartitionRecovery(t *testing.T) {
 
 		if node.id > 5 {
 			node.list = latency.Local.Listener(node.list)
-			node.options.Dialer = func(_ context.Context, target string) (net.Conn, error) {
+			node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
 				conn, err := net.Dial("tcp", target)
 				if err != nil {
 					return nil, err
@@ -97,7 +97,7 @@ func TestNetwork_PartitionRecovery(t *testing.T) {
 			}
 		} else {
 			node.list = latency.Local.Listener(node.list)
-			node.options.Dialer = func(_ context.Context, target string) (net.Conn, error) {
+			node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
 				conn, err := net.Dial("tcp", target)
 				if err != nil {
 					return nil, err
@@ -235,7 +235,7 @@ func TestNetwork_TLSEncryption(t *testing.T) {
 	// Setup a cluster with TLS configuration
 	certPool := x509.NewCertPool()
 	tlsEnabled := func(node *testNode) {
-		node.options.TlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool)
+		node.grpcConfig.TLSConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool)
 	}
 
 	nodes, startCluster := setupCluster(t, 3, tlsEnabled)
@@ -266,9 +266,9 @@ func TestNetwork_mTLS_EnabledAuthentication(t *testing.T) {
 	tlsEnabled := func(node *testNode) {
 		node.options.ForwardApply = true
 		if node.id <= 2 {
-			node.options.TlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool1)
+			node.grpcConfig.TLSConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool1)
 		} else {
-			node.options.TlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool2)
+			node.grpcConfig.TLSConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool2)
 		}
 	}
 

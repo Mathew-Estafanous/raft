@@ -62,6 +62,7 @@ type testNode struct {
 	stableStore raft.StableStore
 	list        net.Listener
 	options     *raft.Options
+	grpcConfig  *raft.GRPCTransportConfig
 }
 
 type clusterOptFunc func(node *testNode)
@@ -90,7 +91,6 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 		require.NoError(t, err)
 
 		grpcConfig := &raft.GRPCTransportConfig{}
-		raft.NewGRPCTransport(list, grpcConfig)
 
 		testOpts := raft.Options{
 			MinElectionTimeout: 2 * time.Second,
@@ -107,6 +107,7 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 			logStore:    memStore,
 			stableStore: memStore,
 			list:        list,
+			grpcConfig:  grpcConfig,
 			options:     &testOpts,
 		}
 
@@ -115,7 +116,9 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 			opt(tNode)
 		}
 
-		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore, nil)
+		transport := raft.NewGRPCTransport(tNode.list, grpcConfig)
+
+		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore, transport)
 		require.NoError(t, err)
 
 		tNode.raft = raftInst
@@ -124,19 +127,11 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 
 	startClusterFunc := func() {
 		for _, n := range nodes {
-			go func(raft *raft.Raft, list net.Listener) {
-				// Get the address from the listener
-				addr := list.Addr().String()
-
-				// Close the existing listener
-				list.Close()
-
-				// Use ListenAndServe which will automatically create a transport
-				err := raft.ListenAndServe(addr)
-				if err != nil {
+			go func(raft *raft.Raft) {
+				if err := raft.Serve(); err != nil {
 					t.Logf("Node %d stopped with error: %v", n.id, err)
 				}
-			}(n.raft, n.list)
+			}(n.raft)
 		}
 	}
 
