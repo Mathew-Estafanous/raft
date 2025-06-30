@@ -43,6 +43,7 @@ type StableStore interface {
 	Set(key, value []byte) error
 
 	// Get returns the value related to that key. An empty slice is returned if
-	// there is no value with that key found.
+	// there is no value with that key found. An error signals an invalid store state
+	// and will cause the node to terminate to prevent further corruption.
 	Get(key []byte) ([]byte, error)
 }

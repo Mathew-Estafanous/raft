@@ -2,11 +2,15 @@ package raft
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/Mathew-Estafanous/raft/cluster"
 )
 
 func (r *Raft) runLeaderState() {
+	leaderLogger := r.logger.With(slog.Uint64("term", r.fromStableStore(keyCurrentTerm)))
+
 	r.heartbeat.Reset(r.opts.HeartBeatTimout)
 	r.indexMu.Lock()
 	for k := range r.cluster.AllNodes() {
@@ -34,7 +38,7 @@ func (r *Raft) runLeaderState() {
 			r.leaderMu.Unlock()
 			n, err := r.cluster.GetNode(id)
 			if err != nil {
-				r.logger.Printf("[BUG] Couldn't find a leader with ID %v", id)
+				leaderLogger.Warn(fmt.Sprintf("Couldn't find a leader with ID %v", id))
 			}
 			respErr = NewLeaderError(n.ID, n.Addr)
 		}
@@ -63,7 +67,7 @@ func (r *Raft) runLeaderState() {
 			lt.log.Index = r.log.LastIndex() + 1
 
 			if err := r.log.AppendLogs([]*Log{lt.log}); err != nil {
-				r.logger.Printf("Failed to store new log %v.", lt.log)
+				leaderLogger.Warn(fmt.Sprintf("Failed to store new log %v.", lt.log))
 				lt.respond(ErrFailedToStore)
 				break
 			}
@@ -103,7 +107,7 @@ func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	} else {
 		log, err := r.log.GetLog(prevIndex)
 		if err != nil {
-			r.logger.Printf("Failed to get log %v from log store", prevIndex)
+			r.logger.Warn(fmt.Sprintf("Failed to get log %v from log store", prevIndex))
 			return
 		}
 		prevTerm = log.Term
@@ -115,7 +119,7 @@ func (r *Raft) sendAppendReq(n cluster.Node, nextIdx int64, isHeartbeat bool) {
 	r.indexMu.Unlock()
 	logs, err := r.log.AllLogs()
 	if err != nil {
-		r.logger.Printf("Failed to get all logs from store.")
+		r.logger.Warn("Failed to get all logs from store.")
 		return
 	}
 	var idxOffset int64
@@ -195,7 +199,7 @@ func (r *Raft) setCommitIndex(comIdx int64) {
 		t.respond(nil)
 		delete(r.tasks, i)
 	}
-	r.logger.Printf("Update Commit Index: From %v -> %v", r.commitIndex, comIdx)
+	r.logger.Info(fmt.Sprintf("Update commit index from %v to %v.", r.commitIndex, comIdx))
 	r.commitIndex = comIdx
 }
 

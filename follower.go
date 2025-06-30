@@ -3,6 +3,7 @@ package raft
 import (
 	"context"
 	"fmt"
+	"log/slog"
 )
 
 func (r *Raft) runFollowerState() {
@@ -33,7 +34,9 @@ func (r *Raft) runFollowerState() {
 				Command: t.log.Cmd,
 			})
 			if err != nil {
-				r.logger.Printf("Failed to forward apply request to leader: %v", err)
+				r.logger.Warn("Failed to forward apply request to leader",
+					slog.String("error", err.Error()),
+				)
 				t.respond(fmt.Errorf("couldn't apply request: %v", err))
 				break
 			}

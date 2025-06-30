@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"math/rand"
 	"os"
 	"strconv"
@@ -93,7 +94,7 @@ type Raft struct {
 	id        uint64
 	timer     *time.Timer
 	snapTimer *time.Timer
-	logger    *log.Logger
+	logger    *slog.Logger
 
 	mu      sync.Mutex
 	cluster cluster.Cluster
@@ -138,7 +139,10 @@ func New(c cluster.Cluster, id uint64, opts Options, fsm FSM, logStr LogStore, s
 	if id == 0 {
 		return nil, fmt.Errorf("A raft ID cannot be 0, choose a different ID")
 	}
-	logger := log.New(os.Stdout, fmt.Sprintf("[Raft: %d]", id), log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource: true,
+	}))
+	logger = logger.With("raft_id", id)
 	r := &Raft{
 		id:          id,
 		timer:       time.NewTimer(1 * time.Hour),
@@ -176,12 +180,14 @@ func (r *Raft) Serve() error {
 		return fmt.Errorf("no transport configured, use ListenAndServe or provide a transport during initialization")
 	}
 
-	r.logger.Println("Starting raft instance")
+	r.logger.Info("Starting raft instance")
 
 	// Start the transport in a separate goroutine
 	go func() {
 		if err := r.transport.Start(); err != nil {
-			r.logger.Printf("Transport layer crashed unexpectedly: %v", err)
+			r.logger.Error("Transport layer crashed unexpectedly",
+				slog.String("error", err.Error()),
+			)
 			r.Shutdown()
 		}
 	}()
@@ -191,14 +197,17 @@ func (r *Raft) Serve() error {
 
 	// Stop the transport when we're done
 	if err := r.transport.Stop(); err != nil {
-		r.logger.Printf("Error stopping transport: %v", err)
+		r.logger.Error("Error stopping transport: %v",
+			slog.String("error", err.Error()),
+		)
+		return err
 	}
 
 	return nil
 }
 
 func (r *Raft) Shutdown() {
-	r.logger.Println("Shutting down instance.")
+	r.logger.Info("Shutting down instance.")
 	select {
 	case <-r.shutdownCh:
 	default:
@@ -272,7 +281,11 @@ func (r *Raft) setState(s raftState) {
 		return
 	}
 
-	r.logger.Printf("Changing state from %c -> %c", r.state, s)
+	r.logger.Debug("State changed",
+		slog.String("old_state", string(r.state)),
+		slog.String("new_state", string(s)),
+	)
+
 	switch s {
 	case Follower:
 		r.state = Follower
@@ -296,7 +309,11 @@ func (r *Raft) setState(s raftState) {
 func (r *Raft) fromStableStore(key []byte) uint64 {
 	val, err := r.stable.Get(key)
 	if err != nil {
-		r.logger.Fatalln(err)
+		r.logger.Error("Failed to get data from stable store",
+			slog.String("key", string(key)),
+			slog.String("error", err.Error()),
+		)
+		panic("stable store in unrecoverable state")
 	}
 
 	// if the returned byte slice is empty then we can assume a default of
@@ -307,31 +324,50 @@ func (r *Raft) fromStableStore(key []byte) uint64 {
 
 	term, err := strconv.Atoi(string(val))
 	if err != nil {
-		r.logger.Fatalln(err)
+		r.logger.Error("Failed to get data from stable store",
+			slog.String("key", string(key)),
+			slog.String("term", string(val)),
+			slog.String("error", err.Error()),
+		)
+		panic(fmt.Sprintf("malformed term value in stable store: %v", string(val)))
 	}
 	return uint64(term)
 }
 
 func (r *Raft) setStableStore(key []byte, val uint64) {
 	if err := r.stable.Set(key, []byte(strconv.Itoa(int(val)))); err != nil {
-		r.logger.Fatalln(err)
+		r.logger.Error("Failed to set data in stable store",
+			slog.String("key", string(key)),
+			slog.Uint64("value", val),
+			slog.String("error", err.Error()),
+		)
+		panic("stable store in unrecoverable state")
 	}
 }
 
 func (r *Raft) onRequestVote(req *VoteRequest) *VoteResponse {
 	r.timer.Reset(randElectTime(r.opts.MinElectionTimeout, r.opts.MaxElectionTimout))
+	currentTerm := r.fromStableStore(keyCurrentTerm)
 	resp := &VoteResponse{
-		Term:        r.fromStableStore(keyCurrentTerm),
+		Term:        currentTerm,
 		VoteGranted: false,
 	}
 
-	r.logger.Printf("Received a request vote from candidate %d for term: %d.", req.CandidateId, req.Term)
-	if req.Term < r.fromStableStore(keyCurrentTerm) {
-		r.logger.Printf("[Vote Denied] Candidate term %d | Current term is %d.", req.Term, r.fromStableStore(keyCurrentTerm))
+	r.logger.Info("Received request vote",
+		slog.Uint64("candidate_id", req.CandidateId),
+		slog.Uint64("term", req.Term),
+	)
+
+	if req.Term < currentTerm {
+		r.logger.Debug("Vote denied - candidate term too low",
+			slog.Uint64("candidate_id", req.CandidateId),
+			slog.Uint64("candidate_term", req.Term),
+			slog.Uint64("current_term", currentTerm),
+		)
 		return resp
 	}
 
-	if req.Term > r.fromStableStore(keyCurrentTerm) {
+	if req.Term > currentTerm {
 		r.setStableStore(keyCurrentTerm, req.Term)
 		r.setState(Follower)
 
@@ -340,18 +376,22 @@ func (r *Raft) onRequestVote(req *VoteRequest) *VoteResponse {
 	}
 
 	if r.fromStableStore(keyVotedFor) != 0 {
-		r.logger.Printf("[Vote Denied] Already granted vote for term %v.", r.fromStableStore(keyCurrentTerm))
+		r.logger.Debug("Vote denied - already voted",
+			slog.Uint64("current_term", currentTerm),
+		)
 		return resp
 	}
 
 	lastIdx := r.log.LastIndex()
 	lastTerm := r.log.LastTerm()
 	if lastIdx > req.LastLogIndex || (lastTerm == req.LastLogTerm && lastIdx > req.LastLogIndex) {
-		r.logger.Printf("[Vote Denied] Candidate's log term/index are not up to date.")
+		r.logger.Debug("Vote denied - candidate log not up to date")
 		return resp
 	}
 
-	r.logger.Printf("[Vote Granted] To candidate %d for term %d", req.CandidateId, req.Term)
+	r.logger.Info("Vote granted",
+		slog.Uint64("candidate_id", req.CandidateId),
+		slog.Uint64("term", req.Term))
 
 	r.setStableStore(keyVotedFor, req.CandidateId)
 	resp.VoteGranted = true
@@ -367,7 +407,9 @@ func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 	}
 
 	if req.Term < r.fromStableStore(keyCurrentTerm) {
-		r.logger.Printf("Append entry rejected since leader term: %d < current: %d", req.Term, r.fromStableStore(keyCurrentTerm))
+		r.logger.Debug("Append entry rejected - leader term too low",
+			slog.Uint64("leader_term", req.Term),
+			slog.Uint64("current_term", r.fromStableStore(keyCurrentTerm)))
 		return resp
 	} else if req.Term > r.fromStableStore(keyCurrentTerm) {
 		r.setStableStore(keyCurrentTerm, req.Term)
@@ -377,7 +419,9 @@ func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 
 	r.leaderMu.Lock()
 	if r.leaderId != req.LeaderId {
-		r.logger.Printf("New leader ID: %d for term %d", req.LeaderId, r.fromStableStore(keyCurrentTerm))
+		r.logger.Info("New leader",
+			slog.Uint64("leader_id", req.LeaderId),
+			slog.Uint64("term", r.fromStableStore(keyCurrentTerm)))
 		r.leaderId = req.LeaderId
 	}
 	r.leaderMu.Unlock()
@@ -392,20 +436,27 @@ func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 			// If the last index is less than the leader's previous log index then it's guaranteed
 			// that the terms will not match. We can return a unsuccessful response in that case.
 			if lastIdx < req.PrevLogIndex {
-				r.logger.Printf("Request prev. index %v is greater then last index %v", req.PrevLogIndex, lastIdx)
+				r.logger.Debug("Request prev. index is greater than last index",
+					slog.Int64("prev_index", req.PrevLogIndex),
+					slog.Int64("last_index", lastIdx))
 				return resp
 			}
 
 			prevLog, err := r.log.GetLog(req.PrevLogIndex)
 			if err != nil {
-				r.logger.Printf("Unable to get log at previous index %v", req.PrevLogIndex)
+				r.logger.Warn("Failed to get log at previous index",
+					slog.Int64("prev_index", req.PrevLogIndex),
+					slog.String("error", err.Error()),
+				)
 				return resp
 			}
 			prevTerm = prevLog.Term
 		}
 
 		if prevTerm != req.PrevLogTerm {
-			r.logger.Printf("Request prev. term %v does not match log term %v", req.PrevLogTerm, prevTerm)
+			r.logger.Debug("Log term mismatch",
+				slog.Uint64("request_term", req.PrevLogTerm),
+				slog.Uint64("log_term", prevTerm))
 			return resp
 		}
 	}
@@ -421,7 +472,10 @@ func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 
 			logEntry, err := r.log.GetLog(e.Index)
 			if err != nil {
-				r.logger.Printf("Failed to get log at index %v", e.Index)
+				r.logger.Warn("Failed to get log entry",
+					slog.Int64("index", e.Index),
+					slog.String("error", err.Error()),
+				)
 				return resp
 			}
 
@@ -430,7 +484,9 @@ func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 			if e.Term != logEntry.Term {
 				err = r.log.DeleteRange(logEntry.Index, lastIdx)
 				if err != nil {
-					r.logger.Printf("Failed to delete range %d - %d", logEntry.Index+1, lastIdx)
+					r.logger.Warn(fmt.Sprintf("Failed to delete logs at index %v to %v", logEntry.Index, lastIdx),
+						slog.String("error", err.Error()),
+					)
 					return resp
 				}
 				newEntries = allEntries[i:]
@@ -441,12 +497,15 @@ func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 		// if newEntries is greater than 0 then there are new entries that we must add to the log.
 		if n := len(newEntries); n > 0 {
 			if err := r.log.AppendLogs(newEntries); err != nil {
-				r.logger.Println("Failed to append new log entries to log store.")
+				r.logger.Warn("Failed to append new log entries",
+					slog.String("error", err.Error()),
+				)
 				return resp
 			}
 
 			if logs, err := r.log.AllLogs(); err == nil {
-				r.logger.Printf("Updated Log: %v", logs)
+				r.logger.Debug("Updated log entries",
+					slog.Any("logs", logs))
 			}
 		}
 	}
@@ -463,7 +522,6 @@ func (r *Raft) onAppendEntry(req *AppendEntriesRequest) *AppendEntriesResponse {
 	resp.Success = true
 	return resp
 }
-
 func (r *Raft) onForwardApplyRequest(req *ApplyRequest) *ApplyResponse {
 	task := r.Apply(req.Command)
 	if err := task.Error(); err != nil {
@@ -483,7 +541,9 @@ func (r *Raft) applyLogs() {
 	for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
 		l, err := r.log.GetLog(i)
 		if err != nil {
-			r.logger.Printf("Failed to get log index %v to fsm.", i)
+			r.logger.Warn(fmt.Sprintf("Failed to get log index %v to fsm.", i),
+				slog.String("error", err.Error()),
+			)
 			return
 		}
 
@@ -496,7 +556,10 @@ func (r *Raft) applyLogs() {
 			i = l.Index
 			r.fsmCh <- restore
 			if restore.Error() != nil {
-				r.logger.Fatalln("Could not successfully restore log snapshot to FSM")
+				r.logger.Error("Could not restore log snapshot to FSM",
+					slog.String("error", restore.Error().Error()),
+				)
+				panic("Could not restore log snapshot to FSM")
 			}
 		case LogEntry:
 			update := &fsmUpdate{
@@ -505,10 +568,14 @@ func (r *Raft) applyLogs() {
 			}
 			r.fsmCh <- update
 			if update.Error() != nil {
-				r.logger.Fatalln("Could not successfully apply log entry to FSM")
+				r.logger.Error("Could not apply log entry to FSM",
+					slog.String("error", update.Error().Error()),
+				)
+				panic("Could not apply log entry to FSM")
 			}
 		default:
-			r.logger.Fatalf("Type %v is not a valid log type", l.Type)
+			r.logger.Error(fmt.Sprintf("Type %v is not a valid log type", l.Type))
+			panic("invalid apply log type")
 		}
 	}
 	r.lastApplied = r.commitIndex
@@ -521,7 +588,9 @@ func (r *Raft) onSnapshot() {
 	r.snapTimer.Reset(r.opts.SnapshotTimer)
 	logs, err := r.log.AllLogs()
 	if err != nil {
-		r.logger.Println("Failed to get all logs from persistence.")
+		r.logger.Warn("Failed to get logs from persistence layer.",
+			slog.String("error", err.Error()),
+		)
 		return
 	}
 
@@ -535,14 +604,19 @@ func (r *Raft) onSnapshot() {
 	}
 	r.fsmCh <- snapTask
 	if snapTask.Error() != nil {
-		r.logger.Println("Failed to create a snapshot of the FSM.")
+		r.logger.Warn("Failed to create a snapshot of the FSM.",
+			slog.String("error", snapTask.Error().Error()),
+		)
 		return
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err = r.log.DeleteRange(logs[0].Index, logs[len(logs)-1].Index); err != nil {
-		r.logger.Fatalln(err)
+		r.logger.Warn(fmt.Sprintf("Deleting logs from range %v to %v failed.", logs[0].Index, logs[len(logs)-1].Index),
+			slog.String("error", err.Error()),
+		)
+		return
 	}
 
 	// Use the FSM state in a snapshot log that is added to the Log persistence storage.
@@ -553,16 +627,18 @@ func (r *Raft) onSnapshot() {
 		Cmd:   snapTask.state,
 	}
 	if err = r.log.AppendLogs([]*Log{snapLog}); err != nil {
-		r.logger.Fatalln(err)
+		r.logger.Error("Couldn't append new logs",
+			slog.String("error", err.Error()),
+		)
+		panic("Couldn't append new logs")
 	}
 
 	idx := r.lastApplied - logs[0].Index
 	if err = r.log.AppendLogs(logs[idx+1:]); err != nil {
-		r.logger.Fatalln(err)
-	}
-
-	if logs, err := r.log.AllLogs(); err == nil {
-		r.logger.Printf("LogSnapshot Logs: %v", logs)
+		r.logger.Error("Couldn't append new logs",
+			slog.String("error", err.Error()),
+		)
+		panic("Couldn't append new logs")
 	}
 }
 

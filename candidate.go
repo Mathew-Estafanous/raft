@@ -1,6 +1,8 @@
 package raft
 
 import (
+	"log/slog"
+
 	"github.com/Mathew-Estafanous/raft/cluster"
 	"golang.org/x/net/context"
 )
@@ -10,18 +12,21 @@ func (r *Raft) runCandidateState() {
 	defer cancel()
 
 	r.setStableStore(keyCurrentTerm, r.fromStableStore(keyCurrentTerm)+1)
-	r.logger.Printf("Candidate started election for term %v.", r.fromStableStore(keyCurrentTerm))
+	candidateLogger := r.logger.With(slog.Uint64("term", r.fromStableStore(keyCurrentTerm)))
+	candidateLogger.Info("Candidate started election")
 
 	r.sendVoteRequests(electCtx)
 
 	for r.getState() == Candidate {
 		select {
 		case <-electCtx.Done():
-			r.logger.Printf("Election has failed for term %d", r.fromStableStore(keyCurrentTerm))
+			candidateLogger.InfoContext(electCtx, "Election failed. Demoting to follower.")
 			r.setState(Follower)
 		case v := <-r.voteCh:
 			if v.error != nil {
-				r.logger.Printf("A vote request has failed: %v", v.error)
+				candidateLogger.Warn("Vote request failed",
+					slog.String("error", v.error.Error()),
+				)
 				break
 			}
 
@@ -74,7 +79,7 @@ func (r *Raft) handleVoteResponse(vote *VoteResponse) {
 	// If term of peer is greater than go back to follower
 	// and update current term to the peer's term.
 	if vote.Term > r.fromStableStore(keyCurrentTerm) {
-		r.logger.Println("Demoting since peer's term is greater than current term")
+		r.logger.Info("Demoting since peer's term is greater than current term")
 		r.setStableStore(keyCurrentTerm, vote.Term)
 		r.setState(Follower)
 		return
