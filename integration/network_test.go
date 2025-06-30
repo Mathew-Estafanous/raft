@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mathew-Estafanous/raft/transport"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/benchmark/latency"
 )
@@ -36,15 +37,19 @@ func TestNetwork_RequestLatency(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			networkDelay := func(node *testNode) {
 				node.options.ForwardApply = true
-				node.list = tt.latency.Listener(node.list)
-				node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
-					conn, err := net.Dial("tcp", target)
-					if err != nil {
-						return nil, err
-					}
 
-					return tt.latency.Conn(conn)
-				}
+				list, err := net.Listen("tcp", node.addr)
+				require.NoError(t, err, "Failed to listen on address %s", node.addr)
+				node.transport = transport.NewGRPCTransport(tt.latency.Listener(list), &transport.GRPCTransportConfig{
+					Dialer: func(_ context.Context, target string) (net.Conn, error) {
+						conn, err := net.Dial("tcp", target)
+						if err != nil {
+							return nil, err
+						}
+
+						return tt.latency.Conn(conn)
+					},
+				})
 			}
 
 			nodes, startCluster := setupCluster(t, 7, networkDelay)
@@ -77,45 +82,49 @@ func TestNetwork_PartitionRecovery(t *testing.T) {
 			MTU:     0,
 		}
 
+		list, err := net.Listen("tcp", node.addr)
+		require.NoError(t, err, "Failed to listen on address %s", node.addr)
 		if node.id > 5 {
-			node.list = latency.Local.Listener(node.list)
-			node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
-				conn, err := net.Dial("tcp", target)
-				if err != nil {
-					return nil, err
-				}
+			node.transport = transport.NewGRPCTransport(latency.Local.Listener(list), &transport.GRPCTransportConfig{
+				Dialer: func(_ context.Context, target string) (net.Conn, error) {
+					conn, err := net.Dial("tcp", target)
+					if err != nil {
+						return nil, err
+					}
 
-				allowedTargets := []string{
-					"127.0.0.1:9206",
-					"127.0.0.1:9207",
-				}
-				if slices.Contains(allowedTargets, target) || !partitionEnabled {
-					return conn, nil
-				}
+					allowedTargets := []string{
+						"127.0.0.1:9206",
+						"127.0.0.1:9207",
+					}
+					if slices.Contains(allowedTargets, target) || !partitionEnabled {
+						return conn, nil
+					}
 
-				return lostNetwork.Conn(conn)
-			}
+					return lostNetwork.Conn(conn)
+				},
+			})
 		} else {
-			node.list = latency.Local.Listener(node.list)
-			node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
-				conn, err := net.Dial("tcp", target)
-				if err != nil {
-					return nil, err
-				}
+			node.transport = transport.NewGRPCTransport(latency.Local.Listener(list), &transport.GRPCTransportConfig{
+				Dialer: func(_ context.Context, target string) (net.Conn, error) {
+					conn, err := net.Dial("tcp", target)
+					if err != nil {
+						return nil, err
+					}
 
-				allowedTargets := []string{
-					"127.0.0.1:9201",
-					"127.0.0.1:9202",
-					"127.0.0.1:9203",
-					"127.0.0.1:9204",
-					"127.0.0.1:9205",
-				}
-				if slices.Contains(allowedTargets, target) || !partitionEnabled {
-					return conn, nil
-				}
+					allowedTargets := []string{
+						"127.0.0.1:9201",
+						"127.0.0.1:9202",
+						"127.0.0.1:9203",
+						"127.0.0.1:9204",
+						"127.0.0.1:9205",
+					}
+					if slices.Contains(allowedTargets, target) || !partitionEnabled {
+						return conn, nil
+					}
 
-				return lostNetwork.Conn(conn)
-			}
+					return lostNetwork.Conn(conn)
+				},
+			})
 		}
 	}
 
@@ -235,7 +244,11 @@ func TestNetwork_TLSEncryption(t *testing.T) {
 	// Setup a cluster with TLS configuration
 	certPool := x509.NewCertPool()
 	tlsEnabled := func(node *testNode) {
-		node.grpcConfig.TLSConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool)
+		list, err := net.Listen("tcp", node.addr)
+		require.NoError(t, err, "Failed to listen on address %s", node.addr)
+		node.transport = transport.NewGRPCTransport(list, &transport.GRPCTransportConfig{
+			TLSConfig: generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool),
+		})
 	}
 
 	nodes, startCluster := setupCluster(t, 3, tlsEnabled)
@@ -265,11 +278,19 @@ func TestNetwork_mTLS_EnabledAuthentication(t *testing.T) {
 	certPool2 := x509.NewCertPool()
 	tlsEnabled := func(node *testNode) {
 		node.options.ForwardApply = true
+
+		list, err := net.Listen("tcp", node.addr)
+		require.NoError(t, err, "Failed to listen on address %s", node.addr)
+		var tlsConfig *tls.Config
 		if node.id <= 2 {
-			node.grpcConfig.TLSConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool1)
+			tlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool1)
 		} else {
-			node.grpcConfig.TLSConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool2)
+			tlsConfig = generateTLSConfig(t, strconv.FormatUint(node.id, 10), certPool2)
 		}
+
+		node.transport = transport.NewGRPCTransport(list, &transport.GRPCTransportConfig{
+			TLSConfig: tlsConfig,
+		})
 	}
 
 	nodes, startCluster := setupCluster(t, 3, tlsEnabled)

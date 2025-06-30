@@ -2,7 +2,6 @@ package integration
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"testing"
 
@@ -57,13 +56,13 @@ func (f *testFSM) Restore(_ []byte) error {
 
 type testNode struct {
 	id          uint64
+	addr        string
 	raft        *raft.Raft
 	fsm         *testFSM
 	logStore    raft.LogStore
 	stableStore raft.StableStore
-	list        net.Listener
 	options     *raft.Options
-	grpcConfig  *transport.GRPCTransportConfig
+	transport   raft.Transport
 }
 
 type clusterOptFunc func(node *testNode)
@@ -83,15 +82,12 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 
 	nodes := make([]*testNode, 0, n)
 
+	memRegistry := transport.NewRegistry()
+
 	// Then, create and start all Raft instances
 	for _, node := range staticCluster.Nodes {
 		fsm := newTestFSM()
 		memStore := store.NewMemStore()
-
-		list, err := net.Listen("tcp", node.Addr)
-		require.NoError(t, err)
-
-		grpcConfig := &transport.GRPCTransportConfig{}
 
 		testOpts := raft.Options{
 			MinElectionTimeout: 2 * time.Second,
@@ -104,11 +100,10 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 
 		tNode := &testNode{
 			id:          node.ID,
+			addr:        node.Addr,
 			fsm:         fsm,
 			logStore:    memStore,
 			stableStore: memStore,
-			list:        list,
-			grpcConfig:  grpcConfig,
 			options:     &testOpts,
 		}
 
@@ -117,9 +112,11 @@ func setupCluster(t *testing.T, n int, opts ...clusterOptFunc) ([]*testNode, fun
 			opt(tNode)
 		}
 
-		grpcTransport := transport.NewGRPCTransport(tNode.list, grpcConfig)
+		if tNode.transport == nil {
+			tNode.transport = transport.NewMemoryTransport(node.Addr, memRegistry)
+		}
 
-		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore, grpcTransport)
+		raftInst, err := raft.New(staticCluster, node.ID, testOpts, fsm, memStore, memStore, tNode.transport)
 		require.NoError(t, err)
 
 		tNode.raft = raftInst

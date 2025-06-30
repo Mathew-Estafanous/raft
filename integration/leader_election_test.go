@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Mathew-Estafanous/raft"
+	"github.com/Mathew-Estafanous/raft/transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/benchmark/latency"
@@ -34,7 +35,8 @@ func countLeaders(nodes []*testNode) int {
 
 // TestLeaderElectionBasic tests basic leader election functionality
 func TestLeaderElectionBasic(t *testing.T) {
-	// Create a small cluster with 3 nodes
+	t.Parallel()
+
 	nodes, startCluster := setupCluster(t, 10)
 	defer func() {
 		cleanupTestCluster(t, nodes)
@@ -54,7 +56,8 @@ func TestLeaderElectionBasic(t *testing.T) {
 }
 
 func TestLeaderElection_AfterLeaderFails(t *testing.T) {
-	// Create a small cluster with 3 nodes
+	t.Parallel()
+
 	rafts, startCluster := setupCluster(t, 10)
 	defer func() {
 		cleanupTestCluster(t, rafts)
@@ -82,6 +85,8 @@ func TestLeaderElection_AfterLeaderFails(t *testing.T) {
 }
 
 func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
+	t.Parallel()
+
 	populateLogs := func(node *testNode) {
 		logs := []*raft.Log{
 			{
@@ -143,15 +148,18 @@ func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 				MTU:     0,              // Setting MTU to 0 to prevent any packet transmission
 			}
 
-			node.list = lostNetwork.Listener(node.list)
-			node.grpcConfig.Dialer = func(_ context.Context, target string) (net.Conn, error) {
-				conn, err := net.Dial("tcp", target)
-				if err != nil {
-					return nil, err
-				}
+			list, err := net.Listen("tcp", node.addr)
+			require.NoError(t, err, "Failed to listen on address %s", node.addr)
+			node.transport = transport.NewGRPCTransport(lostNetwork.Listener(list), &transport.GRPCTransportConfig{
+				Dialer: func(_ context.Context, target string) (net.Conn, error) {
+					conn, err := net.Dial("tcp", target)
+					if err != nil {
+						return nil, err
+					}
 
-				return lostNetwork.Conn(conn)
-			}
+					return lostNetwork.Conn(conn)
+				},
+			})
 
 			node.options.MinElectionTimeout = 500 * time.Millisecond
 			node.options.MaxElectionTimout = 1 * time.Second

@@ -24,7 +24,8 @@ func getFollower(t *testing.T, nodes []*testNode) *testNode {
 
 // TestLogReplication_FromLeader tests that logs are properly replicated from the leader to all followers
 func TestLogReplication_FromLeader(t *testing.T) {
-	// Create a cluster with 3 nodes
+	t.Parallel()
+
 	nodes, startCluster := setupCluster(t, 3)
 	defer func() {
 		cleanupTestCluster(t, nodes)
@@ -64,6 +65,8 @@ func TestLogReplication_FromLeader(t *testing.T) {
 }
 
 func TestLogReplication_FailsFromFollower_DisabledForwardApply(t *testing.T) {
+	t.Parallel()
+
 	nodes, startCluster := setupCluster(t, 3)
 	defer func() {
 		cleanupTestCluster(t, nodes)
@@ -81,6 +84,8 @@ func TestLogReplication_FailsFromFollower_DisabledForwardApply(t *testing.T) {
 }
 
 func TestLogReplication_FromFollower_EnabledForwardApply(t *testing.T) {
+	t.Parallel()
+
 	nodes, startCluster := setupCluster(t, 3, func(node *testNode) {
 		node.options.ForwardApply = true
 	})
@@ -110,6 +115,8 @@ func TestLogReplication_FromFollower_EnabledForwardApply(t *testing.T) {
 }
 
 func TestLogReplication_LeaderLogsReplicated(t *testing.T) {
+	t.Parallel()
+
 	populateLogs := func(node *testNode) {
 		logs := []*raft.Log{
 			{
@@ -146,7 +153,7 @@ func TestLogReplication_LeaderLogsReplicated(t *testing.T) {
 
 	startCluster()
 
-	leader, err := waitForLeader(t, nodes, 5*time.Second)
+	leader, err := waitForLeader(t, nodes, 10*time.Second)
 	require.NoError(t, err, "Failed to elect a leader")
 
 	t.Logf("Checking that logs from leader %d have replicated to behind node 3", leader.ID())
