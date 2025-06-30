@@ -100,3 +100,8 @@ func (r *rpcHandler) OnRequestVote(req *VoteRequest) *VoteResponse {
 func (r *rpcHandler) OnForwardApplyRequest(req *ApplyRequest) *ApplyResponse {
 	return r.raft.onForwardApplyRequest(req)
 }
+
+type rpcResponse[T any] struct {
+	resp  T
+	error error
+}
