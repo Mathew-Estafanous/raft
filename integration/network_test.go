@@ -59,8 +59,7 @@ func TestNetwork_RequestLatency(t *testing.T) {
 
 			startCluster()
 
-			leader, err := waitForLeader(t, nodes, 15*time.Second)
-			require.NoError(t, err)
+			leader := waitForLeader(t, nodes, 15*time.Second)
 			require.NotNil(t, leader)
 
 			for i := 0; i < 5; i++ {
@@ -135,9 +134,7 @@ func TestNetwork_PartitionRecovery(t *testing.T) {
 
 	startCluster()
 
-	leader, err := waitForLeader(t, nodes, 10*time.Second)
-	require.NoError(t, err)
-	require.NotNil(t, leader)
+	leader := waitForLeader(t, nodes, 10*time.Second)
 
 	t.Logf("Elected leader: Node %d", leader.ID())
 
@@ -259,9 +256,7 @@ func TestNetwork_TLSEncryption(t *testing.T) {
 	startCluster()
 
 	// Wait for a leader to be elected
-	leader, err := waitForLeader(t, nodes, 5*time.Second)
-	require.NoError(t, err)
-	require.NotNil(t, leader)
+	leader := waitForLeader(t, nodes, 5*time.Second)
 
 	t.Logf("Elected leader: Node %d", leader.ID())
 
@@ -301,15 +296,14 @@ func TestNetwork_mTLS_EnabledAuthentication(t *testing.T) {
 	startCluster()
 
 	// Wait for a leader to be elected
-	leader, err := waitForLeader(t, nodes, 10*time.Second)
-	require.NoError(t, err)
+	leader := waitForLeader(t, nodes, 10*time.Second)
 	require.NotNil(t, leader)
 
 	// confirm that node 3 is unable to participate in the cluster
 	// because it is configured with a different TLS configuration
 	n3 := nodes[2]
 	task := n3.raft.Apply([]byte("cmd"))
-	err = task.Error()
+	err := task.Error()
 	t.Logf("Node 3 task response: %v", err)
 	require.Error(t, err, "Node 3 should not be able to apply commands with a different TLS configuration")
 }

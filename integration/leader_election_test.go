@@ -45,8 +45,7 @@ func TestLeaderElectionBasic(t *testing.T) {
 	startCluster()
 
 	// Wait for a leader to be elected
-	leader, err := waitForLeader(t, nodes, 10*time.Second)
-	require.NoError(t, err, "Failed to elect a leader")
+	leader := waitForLeader(t, nodes, 10*time.Second)
 
 	t.Logf("Leader elected: Node %d", leader.ID())
 
@@ -65,8 +64,7 @@ func TestLeaderElection_AfterLeaderFails(t *testing.T) {
 
 	startCluster()
 
-	leader, err := waitForLeader(t, rafts, 10*time.Second)
-	require.NoError(t, err, "Failed to elect a leader")
+	leader := waitForLeader(t, rafts, 10*time.Second)
 
 	t.Logf("First leader elected: Node %d", leader.ID())
 
@@ -74,8 +72,7 @@ func TestLeaderElection_AfterLeaderFails(t *testing.T) {
 	leader.Shutdown()
 
 	// Wait for a new leader to be elected
-	newLeader, err := waitForLeader(t, rafts, 10*time.Second)
-	require.NoError(t, err, "Failed to elect a new leader")
+	newLeader := waitForLeader(t, rafts, 10*time.Second)
 
 	t.Logf("New leader elected: Node %d", newLeader.ID())
 
@@ -133,8 +130,7 @@ func TestLeaderElection_OnlyNodesWithLatestLog(t *testing.T) {
 
 	startCluster()
 
-	leader, err := waitForLeader(t, rafts, 15*time.Second)
-	require.NoError(t, err, "Failed to elect a leader")
+	leader := waitForLeader(t, rafts, 15*time.Second)
 
 	require.NotEqual(t, 3, leader.ID(), "Expected a leader other than node 3")
 }
@@ -173,8 +169,7 @@ func TestLeaderElection_OnNetworkPartition(t *testing.T) {
 
 	startCluster()
 
-	leader, err := waitForLeader(t, nodes, 10*time.Second)
-	require.NoError(t, err, "Failed to elect a leader")
+	leader := waitForLeader(t, nodes, 10*time.Second)
 
 	t.Logf("Leader elected: Node %d", leader.ID())
 

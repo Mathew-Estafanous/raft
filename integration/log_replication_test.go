@@ -12,9 +12,7 @@ import (
 )
 
 func getFollower(t *testing.T, nodes []*testNode) *testNode {
-	// Wait for a leader to be elected
-	leader, err := waitForLeader(t, nodes, 5*time.Second)
-	require.NoError(t, err, "Failed to elect a leader")
+	leader := waitForLeader(t, nodes, 5*time.Second)
 
 	i := slices.IndexFunc(nodes, func(n *testNode) bool {
 		return n.id != leader.ID()
@@ -34,8 +32,7 @@ func TestLogReplication_FromLeader(t *testing.T) {
 	startCluster()
 
 	// Wait for a leader to be elected
-	leader, err := waitForLeader(t, nodes, 10*time.Second)
-	require.NoError(t, err, "Failed to elect a leader")
+	leader := waitForLeader(t, nodes, 10*time.Second)
 
 	t.Logf("Leader elected: Node %d", leader.ID())
 
@@ -153,8 +150,7 @@ func TestLogReplication_LeaderLogsReplicated(t *testing.T) {
 
 	startCluster()
 
-	leader, err := waitForLeader(t, nodes, 10*time.Second)
-	require.NoError(t, err, "Failed to elect a leader")
+	leader := waitForLeader(t, nodes, 10*time.Second)
 
 	t.Logf("Checking that logs from leader %d have replicated to behind node 3", leader.ID())
 

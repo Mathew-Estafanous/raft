@@ -153,37 +153,18 @@ func cleanupTestCluster(t *testing.T, nodes []*testNode) {
 }
 
 // waitForLeader waits for a leader to be elected in the cluster
-func waitForLeader(t *testing.T, nodes []*testNode, timeout time.Duration) (*raft.Raft, error) {
+func waitForLeader(t *testing.T, nodes []*testNode, timeout time.Duration) *raft.Raft {
 	t.Helper()
 
-	timer := time.NewTimer(timeout)
-	leaderCh := make(chan *raft.Raft)
-	defer func() {
-		timer.Stop()
-		close(leaderCh)
-	}()
-
-	go func() {
-		for {
-			for _, n := range nodes {
-				if isLeader(n.raft) {
-					select {
-					case leaderCh <- n.raft:
-						return
-					default:
-						// Channel is closed, exit goroutine
-						return
-					}
-				}
+	var leader *raft.Raft
+	require.Eventually(t, func() bool {
+		for _, n := range nodes {
+			if isLeader(n.raft) {
+				leader = n.raft
+				return true
 			}
-			time.Sleep(50 * time.Millisecond)
 		}
-	}()
-
-	select {
-	case <-timer.C:
-		return nil, fmt.Errorf("no leader elected within timeout")
-	case leader := <-leaderCh:
-		return leader, nil
-	}
+		return false
+	}, timeout, 100*time.Millisecond, "no leader elected within timeout")
+	return leader
 }
